@@ -30,26 +30,77 @@ export function RepoExplain() {
   // Only changes the visible mock component. The input is not parsed or sent anywhere.
   function showExample() {
     setPreview("result");
-    document.getElementById("workspace-heading")?.focus({ preventScroll: true });
+    document
+      .getElementById("workspace-heading")
+      ?.focus({ preventScroll: true });
     document.getElementById("workspace")?.scrollIntoView({ block: "start" });
+  }
+
+  function resetPreview() {
+    setPreview("empty");
+    document.getElementById("repository-url")?.focus();
   }
 
   return (
     <>
       <Hero>
-        <RepositoryForm value={repositoryUrl} onChange={setRepositoryUrl} onPreview={showExample} />
+        <RepositoryForm
+          value={repositoryUrl}
+          onChange={setRepositoryUrl}
+          onPreview={showExample}
+        />
         <ExampleRepositories onSelect={setRepositoryUrl} />
       </Hero>
-      <section id="workspace" className="workspace page-width" aria-label="Repository explanation">
-        <div className="workspace-label"><h2 id="workspace-heading" className="eyebrow" tabIndex={-1}>{preview === "result" ? "Example analysis" : "Your workspace"}</h2>{preview === "empty" ? <span className="text-xs text-muted">A clearer view of the code</span> : <span className="sample-badge">Mock preview</span>}</div>
+      <section
+        id="workspace"
+        className="workspace page-width"
+        aria-label="Repository explanation"
+      >
+        <div className="workspace-label">
+          <h2 id="workspace-heading" className="eyebrow" tabIndex={-1}>
+            {preview === "result" ? "Example analysis" : "Your workspace"}
+          </h2>
+          {preview === "empty" ? (
+            <span className="text-xs text-muted">
+              A clearer view of the code
+            </span>
+          ) : (
+            <span className="sample-badge">Mock preview</span>
+          )}
+        </div>
         <div className="workspace-card">
           {preview === "empty" && <EmptyState onViewExample={showExample} />}
           {preview === "result" && <AnalysisReport analysis={mockAnalysis} />}
           {preview === "loading" && <AnalysisLoading stages={loadingStages} />}
-          {preview !== "empty" && preview !== "result" && preview !== "loading" && <ErrorState {...mockErrors[preview]} onRetry={() => setPreview("empty")} />}
+          {preview !== "empty" &&
+            preview !== "result" &&
+            preview !== "loading" && (
+              <ErrorState
+                {...mockErrors[preview]}
+                onRetry={resetPreview}
+              />
+            )}
         </div>
-        <p role="status" className="sr-only">{preview === "result" ? "Showing the sample analysis for username/repo-explain. The entered URL has not been analyzed." : ""}</p>
-        <details className="preview-details"><summary>Preview interface states</summary><div className="preview-options" aria-label="Mock interface states">{previews.map(({ id, label }) => <button type="button" key={id} aria-pressed={preview === id} onClick={() => setPreview(id)}>{label}</button>)}</div></details>
+        <p role="status" className="sr-only">
+          {preview === "result"
+            ? "Showing the sample analysis for username/repo-explain. The entered URL has not been analyzed."
+            : ""}
+        </p>
+        <details className="preview-details">
+          <summary>Preview interface states</summary>
+          <div className="preview-options" aria-label="Mock interface states">
+            {previews.map(({ id, label }) => (
+              <button
+                type="button"
+                key={id}
+                aria-pressed={preview === id}
+                onClick={() => setPreview(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </details>
       </section>
     </>
   );

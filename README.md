@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RepoExplain
 
-## Getting Started
+A frontend-only Next.js application for exploring how a GitHub repository explanation tool could look. Built with the App Router, TypeScript, React, and the existing Tailwind CSS setup. No additional packages were added.
 
-First, run the development server:
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. On Windows, use `npm.cmd` if PowerShell blocks `npm.ps1`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Explore the interface
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- The workspace starts with an empty state.
+- **Explain Repository** and **Explore an example** display the same sample report for `username/repo-explain`. The entered URL is never analyzed.
+- Example repository chips only fill the input.
+- The report navigation displays seven mock sections: Overview, Tech Stack, Project Structure, Important Files, Architecture, How It Works, and Improvements.
+- Folders in the sample file tree expand and collapse.
+- **Preview interface states** below the workspace exposes the empty state, static loading stages, sample analysis, and all four error variants.
+- The error state's retry button returns to the empty state and focuses the URL input.
+- GitHub buttons are disabled placeholders until you supply real project links.
 
-## Learn More
+## Where to work
 
-To learn more about Next.js, take a look at the following resources:
+```text
+app/
+  page.tsx                 Page composition
+  layout.tsx               Document layout and metadata
+  globals.css              Theme tokens, component styles, responsive rules
+components/
+  RepoExplain.tsx          Local UI state and preview switching
+  Navbar.tsx
+  Hero.tsx
+  RepositoryForm.tsx
+  ExampleRepositories.tsx
+  analysis/                Reusable result sections and loading/error/empty states
+  ui/Icon.tsx              Local SVG icons; no icon dependency
+data/mock-analysis.ts     All example report content and error messages
+types/analysis.ts         Shared TypeScript data types
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The report takes a typed `RepositoryAnalysis` object as a prop. When you implement your own application logic, replace the `mockAnalysis` passed into `AnalysisReport` in `components/RepoExplain.tsx`. The other section components also receive their content through props.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`showExample` is only a placeholder handler. No network requests, repository parsing, API routes, AI SDKs, authentication, database, or server actions are implemented. The architecture diagram and walkthrough describe a possible future implementation.
 
-## Deploy on Vercel
+The UI uses locally available system fonts so development and production builds do not need to download fonts. Reduced-motion preferences, keyboard focus styles, accessible input labels, status announcements, and mobile navigation are included.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Checks
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run lint
+npx tsc --noEmit
+npm run build
+```
