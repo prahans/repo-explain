@@ -1,5 +1,9 @@
 import { detectTechnologies } from "@/lib/detectTechnologies";
 import { getImportantFiles } from "@/lib/getImportantFiles";
+import {
+  getFileContent,
+  type RepositoryFileContent,
+} from "@/lib/getFileContent";
 
 type GitHubContentItem = {
   name: string;
@@ -256,6 +260,25 @@ async function getRepositoryResponse(username: string, repo: string) {
     packageInfo.dependencies,
     packageInfo.devDependencies,
   );
+
+  const fileContents: RepositoryFileContent[] = [];
+
+  for (const file of importantFiles) {
+    // These root files were already fetched in sections 5 and 6.
+    if (file.path === "README.md" || file.path === "package.json") {
+      continue;
+    }
+
+    const result = await getFileContent({
+      username,
+      repo,
+      branch: repository.defaultBranch,
+      path: file.path,
+      headers: githubHeaders,
+    });
+
+    fileContents.push(result);
+  }
 
   // --------------------------------
   // 8. Return everything
