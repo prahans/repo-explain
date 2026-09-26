@@ -10,7 +10,6 @@ import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
 import { loadingStages, mockAnalysis, mockErrors } from "@/data/mock-analysis";
 import type { ErrorKind } from "@/types/analysis";
-import { getRepository } from "@/lib/github";
 
 type PreviewState = "empty" | "result" | "loading" | ErrorKind;
 
@@ -27,6 +26,7 @@ const previews: { id: PreviewState; label: string }[] = [
 export function RepoExplain() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [preview, setPreview] = useState<PreviewState>("empty");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   function extractRepoInfo(url: string) {
     try {
@@ -54,8 +54,9 @@ export function RepoExplain() {
     }
   }
 
-  // Only changes the visible mock component. The input is not parsed or sent anywhere.
+  // Fetch repository data, then show the sample report.
   async function showExample() {
+    setErrorMessage(null);
     const repoInfo = extractRepoInfo(repositoryUrl);
 
     if (!repoInfo) {
@@ -78,12 +79,25 @@ export function RepoExplain() {
         }),
       });
 
-      const data = await response.json();
+      const data: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message =
+          data && typeof data === "object" && "message" in data &&
+          typeof data.message === "string"
+            ? data.message
+            : `Repository request failed (HTTP ${response.status}). Please try again.`;
+        throw new Error(message);
+      }
+
+      if (!data || typeof data !== "object" || !("repository" in data)) {
+        throw new Error("The server returned an empty or invalid response. Please try again.");
+      }
 
       console.log("API RESPONSE:", data);
       setPreview("result");
     } catch (error) {
-      console.error(error);
+      setErrorMessage(error instanceof Error ? error.message : "Could not load the repository. Please try again.");
       setPreview("failed");
     }
 
@@ -97,6 +111,7 @@ export function RepoExplain() {
   }
 
   function resetPreview() {
+    setErrorMessage(null);
     setPreview("empty");
     document.getElementById("repository-url")?.focus();
   }
@@ -135,7 +150,11 @@ export function RepoExplain() {
           {preview !== "empty" &&
             preview !== "result" &&
             preview !== "loading" && (
-              <ErrorState {...mockErrors[preview]} onRetry={resetPreview} />
+              <ErrorState
+                {...mockErrors[preview]}
+                description={preview === "failed" && errorMessage ? errorMessage : mockErrors[preview].description}
+                onRetry={resetPreview}
+              />
             )}
         </div>
         <p role="status" className="sr-only">
