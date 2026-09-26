@@ -10,7 +10,7 @@ export function detectTechnologies(
   dependencies: Dependencies = {},
   devDependencies: Dependencies = {},
 ) {
-  const technologies = new Set<string>();
+  const technologies: string[] = [];
 
   const paths = tree.map((item) => item.path);
 
@@ -19,111 +19,166 @@ export function detectTechnologies(
     ...devDependencies,
   };
 
-  // -------------------------
-  // Languages / ecosystems
-  // -------------------------
+  function addTechnology(name: string) {
+    if (!technologies.includes(name)) {
+      technologies.push(name);
+    }
+  }
 
-  // JavaScript
-  if (
-    paths.some((path) => path.endsWith(".js")) ||
-    paths.includes("package.json")
+  function hasPackage(...packages: string[]) {
+    return packages.some((pkg) => Boolean(allDependencies[pkg]));
+  }
+
+  function hasExtension(...extensions: string[]) {
+    return paths.some((path) =>
+      extensions.some((extension) => path.endsWith(extension)),
+    );
+  }
+
+  function hasFile(...files: string[]) {
+    return files.some((file) =>
+      paths.some((path) => path === file || path.endsWith(`/${file}`)),
+    );
+  }
+
+  // =====================================================
+  // JavaScript / TypeScript frameworks
+  // =====================================================
+
+  const usesNext = hasPackage("next");
+  const usesReact = hasPackage("react");
+  const usesExpress = hasPackage("express");
+  const usesNest = hasPackage("@nestjs/core");
+  const usesVue = hasPackage("vue");
+  const usesNuxt = hasPackage("nuxt");
+  const usesSvelte = hasPackage("svelte");
+  const usesSvelteKit = hasPackage("@sveltejs/kit");
+
+  // Next.js already implies React
+  if (usesNext) {
+    addTechnology("Next.js");
+  } else if (usesReact) {
+    addTechnology("React");
+  }
+
+  if (usesNest) {
+    addTechnology("NestJS");
+  } else if (usesExpress) {
+    addTechnology("Express");
+  }
+
+  // Nuxt already implies Vue
+  if (usesNuxt) {
+    addTechnology("Nuxt");
+  } else if (usesVue) {
+    addTechnology("Vue");
+  }
+
+  // SvelteKit already implies Svelte
+  if (usesSvelteKit) {
+    addTechnology("SvelteKit");
+  } else if (usesSvelte) {
+    addTechnology("Svelte");
+  }
+
+  // =====================================================
+  // Language
+  // =====================================================
+
+  const usesTypeScript =
+    hasPackage("typescript") || hasExtension(".ts", ".tsx");
+
+  const usesJavaScript =
+    hasExtension(".js", ".jsx", ".mjs", ".cjs") || hasFile("package.json");
+
+  if (usesTypeScript) {
+    // Show TypeScript instead of both JS + TS
+    addTechnology("TypeScript");
+  } else if (
+    usesJavaScript &&
+    !usesNext &&
+    !usesReact &&
+    !usesExpress &&
+    !usesNest &&
+    !usesVue &&
+    !usesNuxt &&
+    !usesSvelte &&
+    !usesSvelteKit
   ) {
-    technologies.add("JavaScript");
+    // Only show JavaScript for a vanilla JS project
+    addTechnology("JavaScript");
   }
 
-  // TypeScript
+  // =====================================================
+  // Other languages
+  // =====================================================
+
   if (
-    paths.some((path) => path.endsWith(".ts") || path.endsWith(".tsx")) ||
-    allDependencies["typescript"]
+    hasExtension(".py") ||
+    hasFile("requirements.txt", "pyproject.toml", "Pipfile")
   ) {
-    technologies.add("TypeScript");
+    addTechnology("Python");
   }
 
-  // Python
+  if (hasExtension(".go") || hasFile("go.mod")) {
+    addTechnology("Go");
+  }
+
+  if (hasExtension(".rs") || hasFile("Cargo.toml")) {
+    addTechnology("Rust");
+  }
+
   if (
-    paths.some((path) => path.endsWith(".py")) ||
-    paths.includes("requirements.txt") ||
-    paths.includes("pyproject.toml") ||
-    paths.includes("Pipfile")
+    hasExtension(".java") ||
+    hasFile("pom.xml", "build.gradle", "build.gradle.kts")
   ) {
-    technologies.add("Python");
+    addTechnology("Java");
   }
 
-  // Go
-  if (paths.some((path) => path.endsWith(".go")) || paths.includes("go.mod")) {
-    technologies.add("Go");
+  if (hasExtension(".rb") || hasFile("Gemfile")) {
+    addTechnology("Ruby");
   }
 
-  // Rust
-  if (
-    paths.some((path) => path.endsWith(".rs")) ||
-    paths.includes("Cargo.toml")
-  ) {
-    technologies.add("Rust");
+  // =====================================================
+  // Styling
+  // =====================================================
+
+  if (hasPackage("tailwindcss")) {
+    addTechnology("Tailwind CSS");
   }
 
-  // Java
-  if (
-    paths.some((path) => path.endsWith(".java")) ||
-    paths.includes("pom.xml") ||
-    paths.includes("build.gradle")
-  ) {
-    technologies.add("Java");
+  // =====================================================
+  // Databases
+  // =====================================================
+
+  // Mongoose means MongoDB, so don't display both
+  if (hasPackage("mongoose", "mongodb")) {
+    addTechnology("MongoDB");
   }
 
-  // Ruby
-  if (paths.some((path) => path.endsWith(".rb")) || paths.includes("Gemfile")) {
-    technologies.add("Ruby");
+  if (hasPackage("pg", "postgres")) {
+    addTechnology("PostgreSQL");
   }
 
-  // -------------------------
-  // JavaScript frameworks
-  // -------------------------
-
-  if (allDependencies["react"]) {
-    technologies.add("React");
+  if (hasPackage("mysql", "mysql2")) {
+    addTechnology("MySQL");
   }
 
-  if (allDependencies["next"]) {
-    technologies.add("Next.js");
+  if (hasPackage("sqlite3", "better-sqlite3")) {
+    addTechnology("SQLite");
   }
 
-  if (allDependencies["express"]) {
-    technologies.add("Express");
+  if (hasPackage("redis", "ioredis")) {
+    addTechnology("Redis");
   }
 
-  if (allDependencies["vite"]) {
-    technologies.add("Vite");
+  // =====================================================
+  // ORM
+  // =====================================================
+
+  if (hasPackage("prisma", "@prisma/client")) {
+    addTechnology("Prisma");
   }
 
-  if (allDependencies["tailwindcss"]) {
-    technologies.add("Tailwind CSS");
-  }
-
-  if (allDependencies["node"]) {
-    technologies.add("Node.js");
-  }
-
-  // -------------------------
-  // Databases / ORMs
-  // -------------------------
-
-  if (allDependencies["mongoose"]) {
-    technologies.add("MongoDB");
-    technologies.add("Mongoose");
-  }
-
-  if (allDependencies["mongodb"]) {
-    technologies.add("MongoDB");
-  }
-
-  if (allDependencies["pg"]) {
-    technologies.add("PostgreSQL");
-  }
-
-  if (allDependencies["prisma"] || allDependencies["@prisma/client"]) {
-    technologies.add("Prisma");
-  }
-
-  return Array.from(technologies);
+  return technologies;
 }
