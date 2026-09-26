@@ -291,7 +291,7 @@ async function getRepositoryResponse(username: string, repo: string) {
 
   const MAX_STRUCTURE_PATHS = 200;
   const MAX_README_CHARACTERS = 6_000;
-  const MAX_SOURCE_CHARACTERS = 3_000;
+  const MAX_SOURCE_CHARACTERS = 6_000;
 
   // Prefer paths closer to the repository root.
   const structurePaths = tree
