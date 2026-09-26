@@ -18,7 +18,10 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return Response.json({ message: "Request body must be valid JSON" }, { status: 400 });
+    return Response.json(
+      { message: "Request body must be valid JSON" },
+      { status: 400 },
+    );
   }
 
   if (
@@ -31,7 +34,10 @@ export async function POST(request: Request) {
     !body.username.trim() ||
     !body.repo.trim()
   ) {
-    return Response.json({ message: "Provide a username and repository name" }, { status: 400 });
+    return Response.json(
+      { message: "Provide a username and repository name" },
+      { status: 400 },
+    );
   }
 
   try {
@@ -39,14 +45,16 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("GitHub repository request failed:", error);
     return Response.json(
-      { message: "Could not retrieve repository data from GitHub. Please try again." },
+      {
+        message:
+          "Could not retrieve repository data from GitHub. Please try again.",
+      },
       { status: 502 },
     );
   }
 }
 
 async function getRepositoryResponse(username: string, repo: string) {
-
   // 1. Get repository information
   const response = await fetch(
     `https://api.github.com/repos/${username}/${repo}`,
@@ -190,12 +198,19 @@ async function getRepositoryResponse(username: string, repo: string) {
 
   const packageJson = JSON.parse(packageContent);
 
+  const packageInfo = {
+    name: packageJson.name ?? null,
+    scripts: packageJson.scripts ?? {},
+    dependencies: packageJson.dependencies ?? {},
+    devDependencies: packageJson.devDependencies ?? {},
+  };
+
   return Response.json({
     repository,
     files,
     tree,
     importantFiles,
     readmeContent,
-    packageJson,
+    packageInfo,
   });
 }

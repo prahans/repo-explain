@@ -1,5 +1,5 @@
 // Helper utility to pause execution
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function getRepository(username: string, repo: string) {
   const response = await fetch(
