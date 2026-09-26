@@ -21,9 +21,6 @@ export function ErrorState({
         <Icon name="retry" size={15} />
         Try again
       </button>
-      <p className="!mb-0 !text-xs">
-        Example error · No repository was checked
-      </p>
     </div>
   );
 }

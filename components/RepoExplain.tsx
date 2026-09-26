@@ -32,35 +32,46 @@ export function RepoExplain() {
       const parsedUrl = new URL(url);
 
       if (parsedUrl.hostname !== "github.com") {
-        console.log("Invalid GitHub URL");
-        return;
+        setPreview("invalid-url");
+        return null;
       }
 
       const parts = parsedUrl.pathname.split("/").filter(Boolean);
 
       if (parts.length < 2) {
-        console.log("Invalid repository URL");
-        return;
+        setPreview("invalid-url");
+        return null;
       }
 
       const username = parts[0];
       const repo = parts[1];
 
-      console.log("username:", username);
-      console.log("repo:", repo);
+      return { username, repo };
     } catch {
-      console.log("Invalid URL");
+      setPreview("invalid-url");
+      return null;
     }
   }
 
   // Only changes the visible mock component. The input is not parsed or sent anywhere.
   function showExample() {
-    extractRepoInfo(repositoryUrl);
+    const repoInfo = extractRepoInfo(repositoryUrl);
+
+    if (!repoInfo) {
+      return;
+    }
+
+    console.log(repoInfo);
+
     setPreview("result");
+
     document
       .getElementById("workspace-heading")
       ?.focus({ preventScroll: true });
-    document.getElementById("workspace")?.scrollIntoView({ block: "start" });
+
+    document.getElementById("workspace")?.scrollIntoView({
+      block: "start",
+    });
   }
 
   function resetPreview() {
