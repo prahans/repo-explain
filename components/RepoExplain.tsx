@@ -67,15 +67,24 @@ export function RepoExplain() {
     try {
       setPreview("loading");
 
-      const repository = await getRepository(username, repo);
+      const response = await fetch("/api/github/repository", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username,
+          repo,
+        }),
+      });
 
-      console.log(repository);
+      const data = await response.json();
 
+      console.log("API RESPONSE:", data);
       setPreview("result");
     } catch (error) {
       console.error(error);
-
-      setPreview("not-found");
+      setPreview("failed");
     }
 
     document
