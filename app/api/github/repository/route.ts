@@ -5,6 +5,11 @@ import {
   type RepositoryFileContent,
 } from "@/lib/getFileContent";
 
+import {
+  generateOverview,
+  type RepositoryOverview,
+} from "@/lib/generateOverview";
+
 type GitHubContentItem = {
   name: string;
   path: string;
@@ -334,7 +339,24 @@ async function getRepositoryResponse(username: string, repo: string) {
   };
 
   // --------------------------------
-  // 9. Return everything
+  // 9. Generate the AI overview
+  // --------------------------------
+
+  let overview: RepositoryOverview;
+
+  try {
+    overview = await generateOverview(repositoryContext);
+  } catch (error) {
+    console.error("AI overview generation failed:", error);
+
+    return Response.json(
+      { message: "Repository data was fetched, but AI analysis failed." },
+      { status: 502 },
+    );
+  }
+
+  // --------------------------------
+  // 10. Return everything
   // --------------------------------
 
   return Response.json({
@@ -347,5 +369,6 @@ async function getRepositoryResponse(username: string, repo: string) {
     technologies,
     fileContents,
     repositoryContext,
+    overview,
   });
 }
