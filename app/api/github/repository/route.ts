@@ -1,3 +1,5 @@
+import { detectTechnologies } from "@/lib/detectTechnologies";
+
 type GitHubContentItem = {
   name: string;
   path: string;
@@ -13,10 +15,18 @@ type GitHubTreeResponse = {
   tree: GitHubTreeItem[];
 };
 
-import { detectTechnologies } from "@/lib/detectTechnologies";
+type GitHubFileResponse = {
+  content?: string;
+};
+
+const githubHeaders = {
+  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+  Accept: "application/vnd.github+json",
+};
 
 export async function POST(request: Request) {
   let body: unknown;
+
   try {
     body = await request.json();
   } catch {
@@ -46,6 +56,7 @@ export async function POST(request: Request) {
     return await getRepositoryResponse(body.username.trim(), body.repo.trim());
   } catch (error) {
     console.error("GitHub repository request failed:", error);
+
     return Response.json(
       {
         message:
@@ -57,14 +68,14 @@ export async function POST(request: Request) {
 }
 
 async function getRepositoryResponse(username: string, repo: string) {
-  // 1. Get repository information
+  // --------------------------------
+  // 1. Repository information
+  // --------------------------------
+
   const response = await fetch(
     `https://api.github.com/repos/${username}/${repo}`,
     {
-      headers: {
-        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-      },
+      headers: githubHeaders,
     },
   );
 
@@ -90,14 +101,14 @@ async function getRepositoryResponse(username: string, repo: string) {
     url: data.html_url,
   };
 
-  // 2. Get root files and folders
+  // --------------------------------
+  // 2. Root files/folders
+  // --------------------------------
+
   const contentsResponse = await fetch(
     `https://api.github.com/repos/${username}/${repo}/contents`,
     {
-      headers: {
-        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-      },
+      headers: githubHeaders,
     },
   );
 
@@ -120,13 +131,14 @@ async function getRepositoryResponse(username: string, repo: string) {
     type: item.type,
   }));
 
+  // --------------------------------
+  // 3. Full repository tree
+  // --------------------------------
+
   const treeResponse = await fetch(
     `https://api.github.com/repos/${username}/${repo}/git/trees/${data.default_branch}?recursive=1`,
     {
-      headers: {
-        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-      },
+      headers: githubHeaders,
     },
   );
 
@@ -148,69 +160,115 @@ async function getRepositoryResponse(username: string, repo: string) {
     type: item.type,
   }));
 
+  // --------------------------------
+  // 4. Find important files
+  // --------------------------------
+
   const importantFiles = tree.filter((item) => {
-    return item.path === "README.md" || item.path === "package.json";
+    return (
+      item.path === "README.md" ||
+      item.path === "package.json" ||
+      item.path === "requirements.txt" ||
+      item.path === "pyproject.toml" ||
+      item.path === "Pipfile" ||
+      item.path === "go.mod" ||
+      item.path === "Cargo.toml" ||
+      item.path === "Gemfile" ||
+      item.path === "pom.xml" ||
+      item.path === "build.gradle"
+    );
   });
+
+  // --------------------------------
+  // 5. README - OPTIONAL
+  // --------------------------------
+
+  let readmeContent: string | null = null;
 
   const readmeResponse = await fetch(
     `https://api.github.com/repos/${username}/${repo}/contents/README.md?ref=${data.default_branch}`,
     {
-      headers: {
-        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-      },
+      headers: githubHeaders,
     },
   );
 
-  const readmeData = await readmeResponse.json();
+  if (readmeResponse.ok) {
+    const readmeData: GitHubFileResponse = await readmeResponse.json();
 
-  if (!readmeResponse.ok) {
+    if (readmeData.content) {
+      readmeContent = Buffer.from(readmeData.content, "base64").toString(
+        "utf-8",
+      );
+    }
+  } else if (readmeResponse.status !== 404) {
     return Response.json(
-      { message: "Failed to read README.md" },
-      { status: readmeResponse.status },
+      {
+        message: "Failed to read README.md",
+      },
+      {
+        status: readmeResponse.status,
+      },
     );
   }
 
-  const readmeContent = Buffer.from(readmeData.content, "base64").toString(
-    "utf-8",
-  );
+  // --------------------------------
+  // 6. package.json - OPTIONAL
+  // --------------------------------
+
+  const packageInfo = {
+    name: null as string | null,
+    scripts: {} as Record<string, string>,
+    dependencies: {} as Record<string, string>,
+    devDependencies: {} as Record<string, string>,
+  };
 
   const packageResponse = await fetch(
     `https://api.github.com/repos/${username}/${repo}/contents/package.json?ref=${data.default_branch}`,
     {
-      headers: {
-        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-      },
+      headers: githubHeaders,
     },
   );
 
-  const packageData = await packageResponse.json();
+  if (packageResponse.ok) {
+    const packageData: GitHubFileResponse = await packageResponse.json();
 
-  if (!packageResponse.ok) {
+    if (packageData.content) {
+      const packageContent = Buffer.from(
+        packageData.content,
+        "base64",
+      ).toString("utf-8");
+
+      const packageJson = JSON.parse(packageContent);
+
+      packageInfo.name = packageJson.name ?? null;
+      packageInfo.scripts = packageJson.scripts ?? {};
+      packageInfo.dependencies = packageJson.dependencies ?? {};
+      packageInfo.devDependencies = packageJson.devDependencies ?? {};
+    }
+  } else if (packageResponse.status !== 404) {
     return Response.json(
-      { message: "Failed to read package.json" },
-      { status: packageResponse.status },
+      {
+        message: "Failed to read package.json",
+      },
+      {
+        status: packageResponse.status,
+      },
     );
   }
 
-  const packageContent = Buffer.from(packageData.content, "base64").toString(
-    "utf-8",
-  );
-
-  const packageJson = JSON.parse(packageContent);
-
-  const packageInfo = {
-    name: packageJson.name ?? null,
-    scripts: packageJson.scripts ?? {},
-    dependencies: packageJson.dependencies ?? {},
-    devDependencies: packageJson.devDependencies ?? {},
-  };
+  // --------------------------------
+  // 7. Detect technologies
+  // --------------------------------
 
   const technologies = detectTechnologies(
+    tree,
     packageInfo.dependencies,
     packageInfo.devDependencies,
   );
+
+  // --------------------------------
+  // 8. Return everything
+  // --------------------------------
 
   return Response.json({
     repository,
