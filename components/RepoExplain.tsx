@@ -75,10 +75,7 @@ export function RepoExplain() {
           {preview !== "empty" &&
             preview !== "result" &&
             preview !== "loading" && (
-              <ErrorState
-                {...mockErrors[preview]}
-                onRetry={resetPreview}
-              />
+              <ErrorState {...mockErrors[preview]} onRetry={resetPreview} />
             )}
         </div>
         <p role="status" className="sr-only">
