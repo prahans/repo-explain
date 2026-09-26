@@ -11,19 +11,39 @@ const sections: { id: AnalysisSection; label: string; icon: IconName }[] = [
   { id: "improvements", label: "Improvements", icon: "bulb" },
 ];
 
-export function AnalysisNavigation({ active, onChange }: { active: AnalysisSection; onChange: (section: AnalysisSection) => void }) {
+export function AnalysisNavigation({
+  active,
+  onChange,
+}: {
+  active: AnalysisSection;
+  onChange: (section: AnalysisSection) => void;
+}) {
   return (
     <aside className="analysis-sidebar">
       <p className="eyebrow mb-4 px-3">Explore repository</p>
       <nav className="analysis-nav" aria-label="Analysis sections">
         {sections.map(({ id, label, icon }) => (
-          <button type="button" key={id} id={`nav-${id}`} aria-pressed={active === id} aria-controls="analysis-panel" onClick={() => onChange(id)}>
-            <Icon name={icon} size={17} /><span>{label}</span>
-            {active === id && <span className="ml-auto size-1.5 shrink-0 rounded-full bg-accent" />}
+          <button
+            type="button"
+            key={id}
+            id={`nav-${id}`}
+            aria-pressed={active === id}
+            aria-controls="analysis-panel"
+            onClick={() => onChange(id)}
+          >
+            <Icon name={icon} size={17} />
+            <span>{label}</span>
+            {active === id && (
+              <span className="ml-auto size-1.5 shrink-0 rounded-full bg-accent" />
+            )}
           </button>
         ))}
       </nav>
-      <div className="sidebar-note"><Icon name="sparkles" size={16} /><p>A starting point for your next contribution.</p><span>Understand. Explore. Build.</span></div>
+      <div className="sidebar-note">
+        <Icon name="sparkles" size={16} />
+        <p>A starting point for your next contribution.</p>
+        <span>Understand. Explore. Build.</span>
+      </div>
     </aside>
   );
 }
