@@ -100,6 +100,10 @@ export function detectTechnologies(
     technologies.add("Tailwind CSS");
   }
 
+  if (allDependencies["node"]) {
+    technologies.add("Node.js");
+  }
+
   // -------------------------
   // Databases / ORMs
   // -------------------------
