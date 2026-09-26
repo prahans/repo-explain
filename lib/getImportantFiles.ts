@@ -11,6 +11,10 @@ export function getImportantFiles(tree: TreeItem[]): string[] {
     "build",
     "coverage",
     ".git",
+    "__tests__",
+    "__mocks__",
+    "__fixtures__",
+    "fixtures",
   ]);
 
   const importantNames = new Set([

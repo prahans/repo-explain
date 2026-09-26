@@ -1,4 +1,5 @@
 import { detectTechnologies } from "@/lib/detectTechnologies";
+import { getImportantFiles } from "@/lib/getImportantFiles";
 
 type GitHubContentItem = {
   name: string;
@@ -164,20 +165,9 @@ async function getRepositoryResponse(username: string, repo: string) {
   // 4. Find important files
   // --------------------------------
 
-  const importantFiles = tree.filter((item) => {
-    return (
-      item.path === "README.md" ||
-      item.path === "package.json" ||
-      item.path === "requirements.txt" ||
-      item.path === "pyproject.toml" ||
-      item.path === "Pipfile" ||
-      item.path === "go.mod" ||
-      item.path === "Cargo.toml" ||
-      item.path === "Gemfile" ||
-      item.path === "pom.xml" ||
-      item.path === "build.gradle"
-    );
-  });
+  const importantPaths = new Set(getImportantFiles(tree));
+
+  const importantFiles = tree.filter((item) => importantPaths.has(item.path));
 
   // --------------------------------
   // 5. README - OPTIONAL
