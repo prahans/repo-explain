@@ -38,17 +38,22 @@ export function OverviewSection({
             <p className="body-copy mt-3">{analysis.overview.targetAudience}</p>
           </article>
           {analysis.overview.limitations.length > 0 && (
-            <article className="panel-card">
-              <h3 className="small-heading flex items-center gap-2">
-                <Icon name="info" size={17} className="text-muted" />
-                Analysis limitations
-              </h3>
-              <ul className="body-copy mt-3 list-disc space-y-2 pl-5">
+            <details className="panel-card">
+              <summary className="small-heading cursor-pointer">
+                About this analysis
+              </summary>
+
+              <p className="body-copy mt-3">
+                This overview is based on selected repository files. Some files
+                or file contents were not included.
+              </p>
+
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-muted">
                 {analysis.overview.limitations.map((limitation, index) => (
                   <li key={`${index}-${limitation}`}>{limitation}</li>
                 ))}
               </ul>
-            </article>
+            </details>
           )}
         </div>
         <div className="space-y-5">
