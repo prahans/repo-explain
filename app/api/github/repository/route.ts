@@ -13,6 +13,8 @@ type GitHubTreeResponse = {
   tree: GitHubTreeItem[];
 };
 
+import { detectTechnologies } from "@/lib/detectTechnologies";
+
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -205,6 +207,11 @@ async function getRepositoryResponse(username: string, repo: string) {
     devDependencies: packageJson.devDependencies ?? {},
   };
 
+  const technologies = detectTechnologies(
+    packageInfo.dependencies,
+    packageInfo.devDependencies,
+  );
+
   return Response.json({
     repository,
     files,
@@ -212,5 +219,6 @@ async function getRepositoryResponse(username: string, repo: string) {
     importantFiles,
     readmeContent,
     packageInfo,
+    technologies,
   });
 }
