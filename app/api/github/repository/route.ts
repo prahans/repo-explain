@@ -281,7 +281,60 @@ async function getRepositoryResponse(username: string, repo: string) {
   }
 
   // --------------------------------
-  // 8. Return everything
+  // 8. Build context for the AI
+  // --------------------------------
+
+  const MAX_STRUCTURE_PATHS = 200;
+  const MAX_README_CHARACTERS = 6_000;
+  const MAX_SOURCE_CHARACTERS = 3_000;
+
+  // Prefer paths closer to the repository root.
+  const structurePaths = tree
+    .map((item) => item.path)
+    .sort((a, b) => {
+      const depthDifference = a.split("/").length - b.split("/").length;
+
+      return depthDifference || a.localeCompare(b);
+    });
+
+  const repositoryContext = {
+    repository,
+
+    technologies,
+
+    readme: {
+      content: readmeContent?.slice(0, MAX_README_CHARACTERS) ?? null,
+
+      truncated: (readmeContent?.length ?? 0) > MAX_README_CHARACTERS,
+    },
+
+    packageInfo: {
+      name: packageInfo.name,
+      scripts: packageInfo.scripts,
+      dependencies: packageInfo.dependencies,
+      devDependencies: packageInfo.devDependencies,
+    },
+
+    structure: {
+      paths: structurePaths.slice(0, MAX_STRUCTURE_PATHS),
+      totalEntries: structurePaths.length,
+      truncated: structurePaths.length > MAX_STRUCTURE_PATHS,
+    },
+
+    selectedFiles: fileContents.map((file) => ({
+      path: file.path,
+
+      content: file.content?.slice(0, MAX_SOURCE_CHARACTERS) ?? null,
+
+      truncated:
+        file.truncated || (file.content?.length ?? 0) > MAX_SOURCE_CHARACTERS,
+
+      error: file.error,
+    })),
+  };
+
+  // --------------------------------
+  // 9. Return everything
   // --------------------------------
 
   return Response.json({
@@ -292,5 +345,7 @@ async function getRepositoryResponse(username: string, repo: string) {
     readmeContent,
     packageInfo,
     technologies,
+    fileContents,
+    repositoryContext,
   });
 }
