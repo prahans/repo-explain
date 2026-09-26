@@ -261,6 +261,7 @@ async function getRepositoryResponse(username: string, repo: string) {
   // --------------------------------
 
   const technologies = detectTechnologies(
+    repository.language,
     tree,
     packageInfo.dependencies,
     packageInfo.devDependencies,
