@@ -62,7 +62,26 @@ export function getImportantFiles(tree: TreeItem[]): string[] {
         extension,
       );
 
-      return isCodeFile && entryNames.has(name);
+      const importantSourceFolders = new Set([
+        "routes",
+        "controllers",
+        "models",
+        "middleware",
+        "middlewares",
+        "services",
+        "config",
+      ]);
+
+      const isImportantSourceFile = folders.some((folder) =>
+        importantSourceFolders.has(folder),
+      );
+
+      const isRootMiddleware = folders.length === 0 && name === "middleware";
+
+      return (
+        isCodeFile &&
+        (entryNames.has(name) || isImportantSourceFile || isRootMiddleware)
+      );
     })
     .map((item) => item.path)
     .sort((a, b) => {
