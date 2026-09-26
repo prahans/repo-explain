@@ -27,8 +27,35 @@ export function RepoExplain() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [preview, setPreview] = useState<PreviewState>("empty");
 
+  function extractRepoInfo(url: string) {
+    try {
+      const parsedUrl = new URL(url);
+
+      if (parsedUrl.hostname !== "github.com") {
+        console.log("Invalid GitHub URL");
+        return;
+      }
+
+      const parts = parsedUrl.pathname.split("/").filter(Boolean);
+
+      if (parts.length < 2) {
+        console.log("Invalid repository URL");
+        return;
+      }
+
+      const username = parts[0];
+      const repo = parts[1];
+
+      console.log("username:", username);
+      console.log("repo:", repo);
+    } catch {
+      console.log("Invalid URL");
+    }
+  }
+
   // Only changes the visible mock component. The input is not parsed or sent anywhere.
   function showExample() {
+    extractRepoInfo(repositoryUrl);
     setPreview("result");
     document
       .getElementById("workspace-heading")
