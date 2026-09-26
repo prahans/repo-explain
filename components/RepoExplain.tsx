@@ -10,6 +10,7 @@ import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
 import { loadingStages, mockAnalysis, mockErrors } from "@/data/mock-analysis";
 import type { ErrorKind } from "@/types/analysis";
+import { getRepository } from "@/lib/github";
 
 type PreviewState = "empty" | "result" | "loading" | ErrorKind;
 
@@ -54,16 +55,28 @@ export function RepoExplain() {
   }
 
   // Only changes the visible mock component. The input is not parsed or sent anywhere.
-  function showExample() {
+  async function showExample() {
     const repoInfo = extractRepoInfo(repositoryUrl);
 
     if (!repoInfo) {
       return;
     }
 
-    console.log(repoInfo);
+    const { username, repo } = repoInfo;
 
-    setPreview("result");
+    try {
+      setPreview("loading");
+
+      const repository = await getRepository(username, repo);
+
+      console.log(repository);
+
+      setPreview("result");
+    } catch (error) {
+      console.error(error);
+
+      setPreview("not-found");
+    }
 
     document
       .getElementById("workspace-heading")
