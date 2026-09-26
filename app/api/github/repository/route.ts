@@ -109,6 +109,10 @@ async function getRepositoryResponse(username: string, repo: string) {
     language: data.language,
     defaultBranch: data.default_branch,
     url: data.html_url,
+
+    // Add these two fields:
+    stars: data.stargazers_count,
+    license: data.license?.name ?? null,
   };
 
   // --------------------------------
