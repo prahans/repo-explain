@@ -11,9 +11,25 @@ import { ImportantFiles } from "@/components/analysis/ImportantFiles";
 import { ArchitectureSection } from "@/components/analysis/ArchitectureSection";
 import { HowItWorks } from "@/components/analysis/HowItWorks";
 import { ImprovementsSection } from "@/components/analysis/ImprovementsSection";
-import type { AnalysisSection, RepositoryAnalysis } from "@/types/analysis";
+import type { AnalysisSection } from "@/types/analysis";
+import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 
-export function AnalysisReport({ analysis }: { analysis: RepositoryAnalysis }) {
+function PendingSection({ title }: { title: string }) {
+  return (
+    <section>
+      <h2 className="section-heading">{title}</h2>
+      <p className="section-description">
+        This section has not been generated for this repository yet.
+      </p>
+    </section>
+  );
+}
+
+export function AnalysisReport({
+  analysis,
+}: {
+  analysis: LiveRepositoryAnalysis;
+}) {
   const [activeSection, setActiveSection] =
     useState<AnalysisSection>("overview");
 
@@ -42,14 +58,22 @@ export function AnalysisReport({ analysis }: { analysis: RepositoryAnalysis }) {
               onNavigate={navigateFromContent}
             />
           )}
-          {activeSection === "tech-stack" && (
-            <TechStackSection technologies={analysis.technologies} />
-          )}
+          {activeSection === "tech-stack" &&
+            (analysis.technologies.length > 0 ? (
+              <TechStackSection technologies={analysis.technologies} />
+            ) : (
+              <section>
+                <h2 className="section-heading">Tech stack</h2>
+                <p className="section-description">
+                  No technologies were identified from the available data.
+                </p>
+              </section>
+            ))}
           {activeSection === "project-structure" && (
             <section>
               <h2 className="section-heading">Find your way around</h2>
               <p className="section-description">
-                An annotated map of the project. Select a folder to open or
+                The file tree returned by GitHub. Select a folder to open or
                 close it.
               </p>
               <div className="mt-6">
@@ -57,25 +81,42 @@ export function AnalysisReport({ analysis }: { analysis: RepositoryAnalysis }) {
               </div>
             </section>
           )}
-          {activeSection === "important-files" && (
-            <ImportantFiles files={analysis.importantFiles} />
-          )}
-          {activeSection === "architecture" && (
-            <ArchitectureSection nodes={analysis.architecture} />
-          )}
-          {activeSection === "how-it-works" && (
-            <HowItWorks steps={analysis.steps} />
-          )}
-          {activeSection === "improvements" && (
-            <ImprovementsSection improvements={analysis.improvements} />
-          )}
+          {activeSection === "important-files" &&
+            (analysis.importantFiles.length > 0 ? (
+              <ImportantFiles files={analysis.importantFiles} />
+            ) : (
+              <section>
+                <h2 className="section-heading">Important files</h2>
+                <p className="section-description">
+                  No files matched the current selection rules.
+                </p>
+              </section>
+            ))}
+          {activeSection === "architecture" &&
+            (analysis.architecture.length > 0 ? (
+              <ArchitectureSection nodes={analysis.architecture} />
+            ) : (
+              <PendingSection title="Architecture" />
+            ))}
+          {activeSection === "how-it-works" &&
+            (analysis.steps.length > 0 ? (
+              <HowItWorks steps={analysis.steps} />
+            ) : (
+              <PendingSection title="How it works" />
+            ))}
+          {activeSection === "improvements" &&
+            (analysis.improvements.length > 0 ? (
+              <ImprovementsSection improvements={analysis.improvements} />
+            ) : (
+              <PendingSection title="Improvements" />
+            ))}
         </div>
       </div>
       <div className="report-footer">
         <span>
           <Icon name="info" size={13} />
-          Sample analysis for username/repo-explain. All content and metadata
-          are mock data.
+          AI overview based on selected repository files. Check the analysis
+          limitations for gaps.
         </span>
         <span className="hidden sm:inline">Made for understanding</span>
       </div>

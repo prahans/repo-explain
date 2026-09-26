@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Hero } from "@/components/Hero";
 import { RepositoryForm } from "@/components/RepositoryForm";
 import { ExampleRepositories } from "@/components/ExampleRepositories";
@@ -8,111 +8,138 @@ import { EmptyState } from "@/components/analysis/EmptyState";
 import { AnalysisReport } from "@/components/analysis/AnalysisReport";
 import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
-import { loadingStages, mockAnalysis, mockErrors } from "@/data/mock-analysis";
-import type { ErrorKind } from "@/types/analysis";
+import { loadingStages } from "@/data/mock-analysis";
+import { mapRepositoryResponse } from "@/lib/mapRepositoryResponse";
+import type { ErrorContent, ErrorKind } from "@/types/analysis";
+import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 
-type PreviewState = "empty" | "result" | "loading" | ErrorKind;
+type ViewState = "empty" | "result" | "loading" | ErrorKind;
 
-const previews: { id: PreviewState; label: string }[] = [
-  { id: "empty", label: "Empty" },
-  { id: "result", label: "Sample analysis" },
-  { id: "loading", label: "Loading" },
-  { id: "not-found", label: "Not found" },
-  { id: "private", label: "Private repository" },
-  { id: "invalid-url", label: "Invalid URL" },
-  { id: "failed", label: "Analysis failed" },
-];
+const errors: Record<ErrorKind, ErrorContent> = {
+  "not-found": {
+    title: "Repository unavailable",
+    description:
+      "Check the URL. The repository may not exist or may not be accessible.",
+  },
+  private: {
+    title: "Repository unavailable",
+    description: "This repository could not be accessed.",
+  },
+  "invalid-url": {
+    title: "Enter a GitHub repository URL",
+    description: "Use a URL such as https://github.com/owner/repository.",
+  },
+  failed: {
+    title: "Analysis failed",
+    description: "Could not analyze the repository. Please try again.",
+  },
+};
+
+function extractRepoInfo(value: string) {
+  try {
+    const url = new URL(value.trim());
+    if (
+      !["https:", "http:"].includes(url.protocol) ||
+      url.hostname.toLowerCase() !== "github.com" ||
+      url.username ||
+      url.password ||
+      url.port
+    )
+      return null;
+
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+
+    const username = parts[0];
+    const repo = parts[1].replace(/\.git$/i, "");
+    if (!/^[a-zA-Z0-9-]+$/.test(username) || !/^[a-zA-Z0-9_.-]+$/.test(repo)) {
+      return null;
+    }
+    if (repo === "." || repo === "..") return null;
+    return { username, repo };
+  } catch {
+    return null;
+  }
+}
 
 export function RepoExplain() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
-  const [preview, setPreview] = useState<PreviewState>("empty");
+  const [view, setView] = useState<ViewState>("empty");
+  const [analysis, setAnalysis] = useState<LiveRepositoryAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const requestPending = useRef(false);
 
-  function extractRepoInfo(url: string) {
-    try {
-      const parsedUrl = new URL(url);
-
-      if (parsedUrl.hostname !== "github.com") {
-        setPreview("invalid-url");
-        return null;
-      }
-
-      const parts = parsedUrl.pathname.split("/").filter(Boolean);
-
-      if (parts.length < 2) {
-        setPreview("invalid-url");
-        return null;
-      }
-
-      const username = parts[0];
-      const repo = parts[1];
-
-      return { username, repo };
-    } catch {
-      setPreview("invalid-url");
-      return null;
-    }
+  function focusWorkspace() {
+    document
+      .getElementById("workspace-heading")
+      ?.focus({ preventScroll: true });
+    document.getElementById("workspace")?.scrollIntoView({ block: "start" });
   }
 
-  // Fetch repository data, then show the sample report.
-  async function showExample() {
+  async function analyzeRepository(url: string) {
+    if (requestPending.current) return;
+
     setErrorMessage(null);
-    const repoInfo = extractRepoInfo(repositoryUrl);
+    setAnalysis(null);
+    const repoInfo = extractRepoInfo(url);
 
     if (!repoInfo) {
+      setView("invalid-url");
+      focusWorkspace();
       return;
     }
 
-    const { username, repo } = repoInfo;
+    requestPending.current = true;
+    setView("loading");
 
     try {
-      setPreview("loading");
-
       const response = await fetch("/api/github/repository", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username,
-          repo,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(repoInfo),
       });
-
       const data: unknown = await response.json().catch(() => null);
 
       if (!response.ok) {
         const message =
-          data && typeof data === "object" && "message" in data &&
+          data &&
+          typeof data === "object" &&
+          "message" in data &&
           typeof data.message === "string"
             ? data.message
             : `Repository request failed (HTTP ${response.status}). Please try again.`;
-        throw new Error(message);
+        setErrorMessage(message);
+        setView(response.status === 404 ? "not-found" : "failed");
+        return;
       }
 
-      if (!data || typeof data !== "object" || !("repository" in data)) {
-        throw new Error("The server returned an empty or invalid response. Please try again.");
-      }
-
-      console.log("API RESPONSE:", data);
-      setPreview("result");
+      // Store the real report instead of rendering mockAnalysis.
+      setAnalysis(mapRepositoryResponse(data));
+      setView("result");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not load the repository. Please try again.");
-      setPreview("failed");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not load the repository. Please try again.",
+      );
+      setView("failed");
+    } finally {
+      requestPending.current = false;
+      focusWorkspace();
     }
-
-    document
-      .getElementById("workspace-heading")
-      ?.focus({ preventScroll: true });
-
-    document.getElementById("workspace")?.scrollIntoView({
-      block: "start",
-    });
   }
 
-  function resetPreview() {
+  function showExample() {
+    if (requestPending.current) return;
+    const exampleUrl = "https://github.com/prahans/wanderLust";
+    setRepositoryUrl(exampleUrl);
+    void analyzeRepository(exampleUrl);
+  }
+
+  function resetView() {
     setErrorMessage(null);
-    setPreview("empty");
+    setAnalysis(null);
+    setView("empty");
     document.getElementById("repository-url")?.focus();
   }
 
@@ -122,7 +149,9 @@ export function RepoExplain() {
         <RepositoryForm
           value={repositoryUrl}
           onChange={setRepositoryUrl}
-          onPreview={showExample}
+          onPreview={() => {
+            void analyzeRepository(repositoryUrl);
+          }}
         />
         <ExampleRepositories onSelect={setRepositoryUrl} />
       </Hero>
@@ -130,53 +159,42 @@ export function RepoExplain() {
         id="workspace"
         className="workspace page-width"
         aria-label="Repository explanation"
+        aria-busy={view === "loading"}
       >
         <div className="workspace-label">
           <h2 id="workspace-heading" className="eyebrow" tabIndex={-1}>
-            {preview === "result" ? "Example analysis" : "Your workspace"}
+            {view === "result" ? "Repository analysis" : "Your workspace"}
           </h2>
-          {preview === "empty" ? (
-            <span className="text-xs text-muted">
-              A clearer view of the code
-            </span>
-          ) : (
-            <span className="sample-badge">Mock preview</span>
-          )}
+          <span className="text-xs text-muted">
+            {view === "result"
+              ? "AI-generated overview"
+              : "A clearer view of the code"}
+          </span>
         </div>
         <div className="workspace-card">
-          {preview === "empty" && <EmptyState onViewExample={showExample} />}
-          {preview === "result" && <AnalysisReport analysis={mockAnalysis} />}
-          {preview === "loading" && <AnalysisLoading stages={loadingStages} />}
-          {preview !== "empty" &&
-            preview !== "result" &&
-            preview !== "loading" && (
-              <ErrorState
-                {...mockErrors[preview]}
-                description={preview === "failed" && errorMessage ? errorMessage : mockErrors[preview].description}
-                onRetry={resetPreview}
-              />
-            )}
+          {view === "empty" && <EmptyState onViewExample={showExample} />}
+          {view === "result" && analysis && (
+            <AnalysisReport
+              key={`${analysis.repository.owner}/${analysis.repository.name}`}
+              analysis={analysis}
+            />
+          )}
+          {view === "loading" && <AnalysisLoading stages={loadingStages} />}
+          {view !== "empty" && view !== "result" && view !== "loading" && (
+            <ErrorState
+              {...errors[view]}
+              description={errorMessage ?? errors[view].description}
+              onRetry={resetView}
+            />
+          )}
         </div>
         <p role="status" className="sr-only">
-          {preview === "result"
-            ? "Showing the sample analysis for username/repo-explain. The entered URL has not been analyzed."
-            : ""}
+          {view === "loading"
+            ? "Analyzing the repository."
+            : view === "result" && analysis
+              ? `Showing analysis for ${analysis.repository.owner}/${analysis.repository.name}.`
+              : ""}
         </p>
-        <details className="preview-details">
-          <summary>Preview interface states</summary>
-          <div className="preview-options" aria-label="Mock interface states">
-            {previews.map(({ id, label }) => (
-              <button
-                type="button"
-                key={id}
-                aria-pressed={preview === id}
-                onClick={() => setPreview(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </details>
       </section>
     </>
   );
