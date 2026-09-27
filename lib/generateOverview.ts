@@ -24,6 +24,22 @@ const overviewSchema = z.object({
     .describe(
       "Briefly list gaps caused by missing files, unreadable files, or truncated content.",
     ),
+
+  fileExplanations: z.array(
+    z.object({
+      path: z.string().describe("The exact relative path from selectedFiles."),
+
+      purpose: z
+        .string()
+        .describe("Explain what this file does in one or two short sentences."),
+
+      significance: z
+        .string()
+        .describe(
+          "Explain why this file matters to understanding the project.",
+        ),
+    }),
+  ),
 });
 
 export type RepositoryOverview = z.infer<typeof overviewSchema>;
@@ -58,6 +74,15 @@ export async function generateOverview(
       Do not claim that you reviewed the entire repository.
 
       Write concise, plain-language explanations.
+
+      For fileExplanations:
+- Explain only files in selectedFiles that have readable content
+  and no reading error.
+- Copy each file's path exactly from selectedFiles.
+- Base purpose and significance on the supplied code.
+- When content is truncated, describe only what the excerpt supports.
+- Do not invent functions, routes, or behavior.
+- Return an empty array if no readable source files were supplied.
     `,
 
     input: JSON.stringify(repositoryContext),
