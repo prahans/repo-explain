@@ -1,67 +1,79 @@
-import { Icon } from "@/components/ui/Icon";
+"use client";
 
-// Presentation only: the caller chooses the stage; there are no timers or requests.
+import { useEffect, useState } from "react";
+import { Icon } from "@/components/ui/Icon";
+import styles from "./AnalysisLoading.module.css";
+
 export function AnalysisLoading({
-  stages,
-  activeStage = 1,
+  repositoryName,
+  onCancel,
 }: {
-  stages: string[];
-  activeStage?: number;
+  repositoryName: string;
+  onCancel: () => void;
 }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const elapsed = `${Math.floor(elapsedSeconds / 60)}:${String(
+    elapsedSeconds % 60,
+  ).padStart(2, "0")}`;
+
   return (
-    <div className="state-surface loading-surface">
-      <div className="state-icon text-accent">
-        <Icon name="sparkles" size={26} />
+    <div className={styles.surface}>
+      <div className={styles.symbol} aria-hidden="true">
+        <span className={styles.ring} />
+        <Icon name="sparkles" size={25} />
       </div>
-      <h2>Getting to know the codebase</h2>
-      <p>
-        A little context goes a long way. Here’s what an analysis will look
-        like.
+      <h3 className={styles.title}>Getting to know the codebase</h3>
+      <p className={styles.description}>
+        Reading repository files and preparing a clear explanation of the project.
       </p>
-      <p role="status" className="sr-only">
-        Sample loading state: {stages[activeStage]}
-      </p>
-      <ol className="loading-stages">
-        {stages.map((stage, index) => (
-          <li
-            key={stage}
-            className={
-              index === activeStage
-                ? "stage-active"
-                : index < activeStage
-                  ? "stage-complete"
-                  : ""
-            }
-            aria-current={index === activeStage ? "step" : undefined}
-          >
-            <span className="stage-indicator">
-              {index < activeStage ? (
-                <Icon name="check" size={13} />
-              ) : index === activeStage ? (
-                <span className="loading-spinner" />
-              ) : (
-                <span className="size-1.5 rounded-full bg-current" />
-              )}
-            </span>
-            <span>{stage}</span>
-            <span className="ml-auto text-xs">
-              {index < activeStage
-                ? "Complete"
-                : index === activeStage
-                  ? "In progress"
-                  : "Waiting"}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <div className="loading-skeleton" aria-hidden="true">
-        <span />
-        <span />
-        <span />
+      <div className={styles.repository}>
+        <Icon name="github" size={14} />
+        <span>{repositoryName}</span>
       </div>
-      <p className="text-xs text-muted">
-        Static preview · No analysis is running
+      <div className={styles.activity}>
+        <div
+          className={styles.progress}
+          role="progressbar"
+          aria-label="Repository analysis in progress"
+        >
+          <span />
+        </div>
+        <div className={styles.progressMeta}>
+          <span>Analysis in progress</span>
+          <span role="timer" aria-live="off">{elapsed} elapsed</span>
+        </div>
+      </div>
+      <div className={styles.skeleton} aria-hidden="true">
+        <div className={styles.skeletonCard}>
+          <span className={styles.skeletonHeading} />
+          <span />
+          <span />
+          <span className={styles.shortLine} />
+        </div>
+        <div className={styles.skeletonCard}>
+          <span className={styles.skeletonHeading} />
+          <span />
+          <span className={styles.shortLine} />
+        </div>
+      </div>
+      <p className={styles.note}>
+        {elapsedSeconds >= 45
+          ? "Still working. Larger repositories can take a little longer."
+          : "This may take a moment. Your explanation will appear here when ready."}
       </p>
+      <button type="button" className={styles.cancel} onClick={onCancel}>
+        Cancel
+      </button>
     </div>
   );
 }

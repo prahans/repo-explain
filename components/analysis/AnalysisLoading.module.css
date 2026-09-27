@@ -1,0 +1,178 @@
+.surface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 44px 24px 32px;
+  text-align: center;
+}
+
+.symbol {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  margin-bottom: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ring {
+  position: absolute;
+  inset: -5px;
+  border: 2px solid #f1e5db;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1.4s linear infinite;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.6px;
+}
+
+.description {
+  max-width: 410px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.repository {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 18px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fafaf8;
+  color: #62685f;
+  font-family: var(--font-app-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.repository svg {
+  flex-shrink: 0;
+}
+
+.activity {
+  width: min(100%, 410px);
+  margin-top: 26px;
+}
+
+.progress {
+  overflow: hidden;
+  height: 4px;
+  border-radius: 4px;
+  background: #f1e8df;
+}
+
+.progress > span {
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: travel 1.8s ease-in-out infinite;
+}
+
+.progressMeta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.skeleton {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 12px;
+  width: min(100%, 480px);
+  margin-top: 27px;
+}
+
+.skeletonCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid #eeeee8;
+  border-radius: 10px;
+  background: #fdfdfa;
+}
+
+.skeletonCard > span {
+  height: 6px;
+  border-radius: 4px;
+  background: #eeefe8;
+}
+
+.skeletonCard > .skeletonHeading {
+  width: 45%;
+  height: 8px;
+  margin-bottom: 5px;
+  background: #e3e5da;
+}
+
+.skeletonCard > .shortLine {
+  width: 70%;
+}
+
+.note {
+  max-width: 410px;
+  min-height: 40px;
+  margin-top: 22px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cancel {
+  min-height: 36px;
+  margin-top: 10px;
+  padding: 7px 17px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: #60665d;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cancel:hover {
+  border-color: #d5baa9;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes travel {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(390%); }
+}
+
+@media (max-width: 480px) {
+  .surface { padding: 34px 20px 26px; }
+  .title { font-size: 20px; }
+  .skeleton { grid-template-columns: 1fr; }
+  .skeletonCard:last-child { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring,
+  .progress > span { animation: none; }
+}

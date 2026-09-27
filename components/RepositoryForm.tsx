@@ -39,7 +39,7 @@ export function RepositoryForm({
           className="repository-input"
           placeholder="https://github.com/username/repository"
           value={value}
-          disabled={isLoading}
+          readOnly={isLoading}
           onChange={(event) => onChange(event.target.value)}
           aria-describedby="repository-helper"
         />

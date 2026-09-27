@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Hero } from "@/components/Hero";
 import { RepositoryForm } from "@/components/RepositoryForm";
 import { ExampleRepositories } from "@/components/ExampleRepositories";
@@ -9,13 +9,14 @@ import { AnalysisReport } from "@/components/analysis/AnalysisReport";
 import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
 import { Icon } from "@/components/ui/Icon";
-import { loadingStages } from "@/data/mock-analysis";
 import { mapRepositoryResponse } from "@/lib/mapRepositoryResponse";
 import type { ErrorContent, ErrorKind } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 import styles from "./RepoExplain.module.css";
 
 type ViewState = "empty" | "result" | "loading" | ErrorKind;
+
+const ANALYSIS_TIMEOUT_MS = 180_000;
 
 const errors: Record<ErrorKind, ErrorContent> = {
   "not-found": {
@@ -69,7 +70,16 @@ export function RepoExplain() {
   const [view, setView] = useState<ViewState>("empty");
   const [analysis, setAnalysis] = useState<LiveRepositoryAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const requestPending = useRef(false);
+  const [loadingRepository, setLoadingRepository] = useState("");
+  const activeRequest = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const request = activeRequest.current;
+      activeRequest.current = null;
+      request?.abort();
+    };
+  }, []);
 
   function focusWorkspace() {
     document
@@ -79,7 +89,7 @@ export function RepoExplain() {
   }
 
   async function analyzeRepository(url: string) {
-    if (requestPending.current) return;
+    if (activeRequest.current) return;
 
     setErrorMessage(null);
     setAnalysis(null);
@@ -91,16 +101,28 @@ export function RepoExplain() {
       return;
     }
 
-    requestPending.current = true;
+    const request = new AbortController();
+    activeRequest.current = request;
+    setLoadingRepository(`${repoInfo.username}/${repoInfo.repo}`);
     setView("loading");
+    focusWorkspace();
+
+    const timeoutId = window.setTimeout(() => {
+      request.abort(new DOMException("Analysis timed out", "TimeoutError"));
+    }, ANALYSIS_TIMEOUT_MS);
 
     try {
       const response = await fetch("/api/github/repository", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(repoInfo),
+        signal: request.signal,
       });
       const data: unknown = await response.json().catch(() => null);
+
+      // A cancelled or older response must never replace a newer analysis.
+      if (activeRequest.current !== request) return;
+      request.signal.throwIfAborted();
 
       if (!response.ok) {
         const message =
@@ -115,24 +137,30 @@ export function RepoExplain() {
         return;
       }
 
-      // Store the real report instead of rendering mockAnalysis.
       setAnalysis(mapRepositoryResponse(data));
       setView("result");
     } catch (error) {
+      if (activeRequest.current !== request) return;
+
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not load the repository. Please try again.",
+        request.signal.aborted
+          ? "This analysis took too long. Please try again."
+          : error instanceof Error
+            ? error.message
+            : "Could not load the repository. Please try again.",
       );
       setView("failed");
     } finally {
-      requestPending.current = false;
-      focusWorkspace();
+      window.clearTimeout(timeoutId);
+      if (activeRequest.current === request) {
+        activeRequest.current = null;
+        focusWorkspace();
+      }
     }
   }
 
   function showExample() {
-    if (requestPending.current) return;
+    if (activeRequest.current) return;
     const exampleUrl = "https://github.com/prahans/wanderLust";
     setRepositoryUrl(exampleUrl);
     void analyzeRepository(exampleUrl);
@@ -143,6 +171,13 @@ export function RepoExplain() {
     setAnalysis(null);
     setView("empty");
     document.getElementById("repository-url")?.focus();
+  }
+
+  function cancelAnalysis() {
+    const request = activeRequest.current;
+    activeRequest.current = null;
+    request?.abort();
+    resetView();
   }
 
   return (
@@ -165,7 +200,6 @@ export function RepoExplain() {
         id="workspace"
         className="workspace page-width"
         aria-label="Repository explanation"
-        aria-busy={view === "loading"}
       >
         <div className={styles.workspaceHeader}>
           <div className={styles.workspaceTitle}>
@@ -192,7 +226,10 @@ export function RepoExplain() {
                   : "Needs attention"}
           </span>
         </div>
-        <div className={`workspace-card ${styles.workspaceCard}`}>
+        <div
+          className={`workspace-card ${styles.workspaceCard}`}
+          aria-busy={view === "loading"}
+        >
           {view === "empty" && <EmptyState onViewExample={showExample} />}
           {view === "result" && analysis && (
             <AnalysisReport
@@ -200,7 +237,12 @@ export function RepoExplain() {
               analysis={analysis}
             />
           )}
-          {view === "loading" && <AnalysisLoading stages={loadingStages} />}
+          {view === "loading" && (
+            <AnalysisLoading
+              repositoryName={loadingRepository}
+              onCancel={cancelAnalysis}
+            />
+          )}
           {view !== "empty" && view !== "result" && view !== "loading" && (
             <ErrorState
               {...errors[view]}
@@ -209,14 +251,14 @@ export function RepoExplain() {
             />
           )}
         </div>
-        <p role="status" className="sr-only">
-          {view === "loading"
-            ? "Analyzing the repository."
-            : view === "result" && analysis
-              ? `Showing analysis for ${analysis.repository.owner}/${analysis.repository.name}.`
-              : ""}
-        </p>
       </section>
+      <p role="status" className="sr-only">
+        {view === "loading"
+          ? `Analyzing ${loadingRepository}. You can cancel while waiting.`
+          : view === "result" && analysis
+            ? `Showing analysis for ${analysis.repository.owner}/${analysis.repository.name}.`
+            : ""}
+      </p>
     </>
   );
 }
