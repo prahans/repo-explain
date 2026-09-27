@@ -10,6 +10,7 @@ export const mockAnalysis: RepositoryAnalysis = {
   repository: {
     name: "repo-explain",
     owner: "username",
+    url: "https://github.com/username/repo-explain",
     description: "An AI-powered repository explanation tool.",
     language: "TypeScript",
     framework: "Next.js",

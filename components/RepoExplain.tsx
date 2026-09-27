@@ -10,6 +10,11 @@ import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
 import { Icon } from "@/components/ui/Icon";
 import { mapRepositoryResponse } from "@/lib/mapRepositoryResponse";
+import {
+  AnalysisResponseError,
+  readAnalysisResponse,
+} from "@/lib/readAnalysisResponse";
+import { analysisStages } from "@/data/analysis-stages";
 import type { ErrorContent, ErrorKind } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 import styles from "./RepoExplain.module.css";
@@ -71,6 +76,7 @@ export function RepoExplain() {
   const [analysis, setAnalysis] = useState<LiveRepositoryAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loadingRepository, setLoadingRepository] = useState("");
+  const [loadingStage, setLoadingStage] = useState(0);
   const activeRequest = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -104,6 +110,7 @@ export function RepoExplain() {
     const request = new AbortController();
     activeRequest.current = request;
     setLoadingRepository(`${repoInfo.username}/${repoInfo.repo}`);
+    setLoadingStage(0);
     setView("loading");
     focusWorkspace();
 
@@ -114,28 +121,26 @@ export function RepoExplain() {
     try {
       const response = await fetch("/api/github/repository", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
         body: JSON.stringify(repoInfo),
         signal: request.signal,
       });
-      const data: unknown = await response.json().catch(() => null);
+      const data = await readAnalysisResponse(
+        response,
+        (stage) => {
+          if (activeRequest.current === request && !request.signal.aborted) {
+            setLoadingStage(stage);
+          }
+        },
+        request.signal,
+      );
 
       // A cancelled or older response must never replace a newer analysis.
       if (activeRequest.current !== request) return;
       request.signal.throwIfAborted();
-
-      if (!response.ok) {
-        const message =
-          data &&
-          typeof data === "object" &&
-          "message" in data &&
-          typeof data.message === "string"
-            ? data.message
-            : `Repository request failed (HTTP ${response.status}). Please try again.`;
-        setErrorMessage(message);
-        setView(response.status === 404 ? "not-found" : "failed");
-        return;
-      }
 
       setAnalysis(mapRepositoryResponse(data));
       setView("result");
@@ -149,7 +154,11 @@ export function RepoExplain() {
             ? error.message
             : "Could not load the repository. Please try again.",
       );
-      setView("failed");
+      setView(
+        error instanceof AnalysisResponseError && error.status === 404
+          ? "not-found"
+          : "failed",
+      );
     } finally {
       window.clearTimeout(timeoutId);
       if (activeRequest.current === request) {
@@ -240,6 +249,7 @@ export function RepoExplain() {
           {view === "loading" && (
             <AnalysisLoading
               repositoryName={loadingRepository}
+              activeStage={loadingStage}
               onCancel={cancelAnalysis}
             />
           )}
@@ -254,7 +264,7 @@ export function RepoExplain() {
       </section>
       <p role="status" className="sr-only">
         {view === "loading"
-          ? `Analyzing ${loadingRepository}. You can cancel while waiting.`
+          ? `${analysisStages[loadingStage]} for ${loadingRepository}. You can cancel while waiting.`
           : view === "result" && analysis
             ? `Showing analysis for ${analysis.repository.owner}/${analysis.repository.name}.`
             : ""}
