@@ -1,6 +1,10 @@
 import { Icon } from "@/components/ui/Icon";
 
-const examples = ["facebook/react", "vercel/next.js", "expressjs/express"];
+const examples = [
+  "prahans/wanderLust",
+  "prahans/FAST-REACT-PIZZA",
+  "prahans/The-wild-oasis",
+];
 
 export function ExampleRepositories({
   onSelect,
