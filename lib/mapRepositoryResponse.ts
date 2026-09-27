@@ -12,6 +12,7 @@ const responseSchema = z.object({
     description: z.string().nullable(),
     language: z.string().nullable(),
     defaultBranch: z.string().min(1),
+    url: z.url(),
     stars: z.number().int().nonnegative().optional(),
     license: z.string().nullable().optional(),
   }),
@@ -70,6 +71,7 @@ export function mapRepositoryResponse(value: unknown): LiveRepositoryAnalysis {
         "Not identified",
       stars: data.repository.stars?.toLocaleString("en-US") ?? "Unknown",
       branch: data.repository.defaultBranch,
+      url: data.repository.url,
       license:
         data.repository.license === undefined
           ? "Unknown"

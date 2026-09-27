@@ -53,6 +53,7 @@ export type RepositoryAnalysis = {
     stars: string;
     branch: string;
     license: string;
+    url: string;
   };
   overview: {
     purpose: string;

@@ -40,16 +40,16 @@ export function RepositoryHeader({
           </div>
         </div>
       </div>
-      <button
+      <a
+        href={repository.url}
+        target="_blank"
+        rel="noopener noreferrer"
         className="secondary-button shrink-0 text-muted"
-        type="button"
-        disabled
-        title="Sample repository link — connect your own URL later"
       >
         <Icon name="github" size={15} />
         View on GitHub
         <Icon name="external" size={12} />
-      </button>
+      </a>
     </header>
   );
 }
