@@ -8,10 +8,12 @@ import { EmptyState } from "@/components/analysis/EmptyState";
 import { AnalysisReport } from "@/components/analysis/AnalysisReport";
 import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
+import { Icon } from "@/components/ui/Icon";
 import { loadingStages } from "@/data/mock-analysis";
 import { mapRepositoryResponse } from "@/lib/mapRepositoryResponse";
 import type { ErrorContent, ErrorKind } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
+import styles from "./RepoExplain.module.css";
 
 type ViewState = "empty" | "result" | "loading" | ErrorKind;
 
@@ -148,12 +150,16 @@ export function RepoExplain() {
       <Hero>
         <RepositoryForm
           value={repositoryUrl}
+          isLoading={view === "loading"}
           onChange={setRepositoryUrl}
           onPreview={() => {
             void analyzeRepository(repositoryUrl);
           }}
         />
-        <ExampleRepositories onSelect={setRepositoryUrl} />
+        <ExampleRepositories
+          onSelect={setRepositoryUrl}
+          disabled={view === "loading"}
+        />
       </Hero>
       <section
         id="workspace"
@@ -161,17 +167,32 @@ export function RepoExplain() {
         aria-label="Repository explanation"
         aria-busy={view === "loading"}
       >
-        <div className="workspace-label">
-          <h2 id="workspace-heading" className="eyebrow" tabIndex={-1}>
-            {view === "result" ? "Repository analysis" : "Your workspace"}
-          </h2>
-          <span className="text-xs text-muted">
-            {view === "result"
-              ? "AI-generated overview"
-              : "A clearer view of the code"}
+        <div className={styles.workspaceHeader}>
+          <div className={styles.workspaceTitle}>
+            <span className={styles.workspaceIcon}>
+              <Icon name="overview" size={18} />
+            </span>
+            <div>
+              <h2 id="workspace-heading" className="eyebrow" tabIndex={-1}>
+                {view === "result" ? "Repository analysis" : "Your workspace"}
+              </h2>
+              <p className={styles.workspaceSubtitle}>
+                Structure, stack, and context in one place.
+              </p>
+            </div>
+          </div>
+          <span className={styles.status} data-state={view}>
+            <span className={styles.statusDot} />
+            {view === "loading"
+              ? "Analyzing repository"
+              : view === "result"
+                ? "Analysis ready"
+                : view === "empty"
+                  ? "Ready to explore"
+                  : "Needs attention"}
           </span>
         </div>
-        <div className="workspace-card">
+        <div className={`workspace-card ${styles.workspaceCard}`}>
           {view === "empty" && <EmptyState onViewExample={showExample} />}
           {view === "result" && analysis && (
             <AnalysisReport

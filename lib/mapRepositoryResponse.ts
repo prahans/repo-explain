@@ -1,5 +1,6 @@
 import * as z from "zod";
-import type { ProjectNode, Technology } from "@/types/analysis";
+import { buildProjectTree } from "@/lib/projectTree";
+import type { Technology } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 
 // Validate the parts of the API response used by the report.
@@ -23,53 +24,6 @@ const responseSchema = z.object({
     limitations: z.array(z.string()),
   }),
 });
-
-function buildProjectTree(
-  name: string,
-  entries: { path: string; type: string }[],
-): ProjectNode {
-  const root: ProjectNode = { name, children: [] };
-  const nodes = new Map<string, ProjectNode>([["", root]]);
-
-  for (const entry of entries) {
-    // Git trees contain blobs (files), trees (folders), and commits (submodules).
-    if (!["blob", "tree", "commit"].includes(entry.type)) continue;
-
-    const parts = entry.path.split("/").filter(Boolean);
-    let parent = root;
-    let currentPath = "";
-
-    parts.forEach((part, index) => {
-      currentPath = currentPath ? `${currentPath}/${part}` : part;
-      const isFolder = index < parts.length - 1 || entry.type === "tree";
-      let node = nodes.get(currentPath);
-
-      if (!node) {
-        node = isFolder ? { name: part, children: [] } : { name: part };
-        nodes.set(currentPath, node);
-        (parent.children ??= []).push(node);
-      }
-
-      if (isFolder) node.children ??= [];
-      if (entry.type === "commit" && index === parts.length - 1) {
-        node.description = "Git submodule";
-      }
-      parent = node;
-    });
-  }
-
-  function sortChildren(node: ProjectNode) {
-    node.children?.sort((a, b) => {
-      const foldersFirst =
-        Number(Boolean(b.children)) - Number(Boolean(a.children));
-      return foldersFirst || a.name.localeCompare(b.name);
-    });
-    node.children?.forEach(sortChildren);
-  }
-
-  sortChildren(root);
-  return root;
-}
 
 export function mapRepositoryResponse(value: unknown): LiveRepositoryAnalysis {
   const parsed = responseSchema.safeParse(value);

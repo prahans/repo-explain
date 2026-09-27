@@ -73,8 +73,8 @@ export function AnalysisReport({
             <section>
               <h2 className="section-heading">Find your way around</h2>
               <p className="section-description">
-                The file tree returned by GitHub. Select a folder to open or
-                close it.
+                Explore the source, configuration, and docs. Generated files and
+                dependencies are hidden by default.
               </p>
               <div className="mt-6">
                 <ProjectTree structure={analysis.structure} />

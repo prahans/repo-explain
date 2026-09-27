@@ -223,6 +223,14 @@ button:disabled {
 .primary-button:hover {
   background: #b63f20;
 }
+.primary-button:disabled {
+  background: #a7543b;
+  border-color: #a7543b;
+}
+.primary-button .loading-spinner {
+  border-color: #ffffff60;
+  border-top-color: white;
+}
 .secondary-button {
   display: inline-flex;
   align-items: center;
@@ -275,6 +283,12 @@ button:disabled {
   border-color: #d9b3a1;
   background: #fff8f3;
   color: var(--accent);
+}
+.example-chip:disabled {
+  opacity: 0.5;
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--muted);
 }
 .workspace {
   padding-bottom: 35px;

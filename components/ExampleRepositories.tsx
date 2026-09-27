@@ -4,8 +4,10 @@ const examples = ["facebook/react", "vercel/next.js", "expressjs/express"];
 
 export function ExampleRepositories({
   onSelect,
+  disabled = false,
 }: {
   onSelect: (url: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="example-row">
@@ -15,6 +17,7 @@ export function ExampleRepositories({
           key={repository}
           type="button"
           className="example-chip"
+          disabled={disabled}
           onClick={() => onSelect(`https://github.com/${repository}`)}
         >
           <Icon name="repository" size={12} />

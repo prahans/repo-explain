@@ -6,12 +6,14 @@ type RepositoryFormProps = {
   value: string;
   onChange: (value: string) => void;
   onPreview: () => void;
+  isLoading?: boolean;
 };
 
 export function RepositoryForm({
   value,
   onChange,
   onPreview,
+  isLoading = false,
 }: RepositoryFormProps) {
   return (
     <form
@@ -37,13 +39,18 @@ export function RepositoryForm({
           className="repository-input"
           placeholder="https://github.com/username/repository"
           value={value}
+          disabled={isLoading}
           onChange={(event) => onChange(event.target.value)}
           aria-describedby="repository-helper"
         />
-        <button className="primary-button" type="submit">
-          <Icon name="sparkles" size={16} />
-          Explain Repository
-          <Icon name="arrow" size={15} />
+        <button className="primary-button" type="submit" disabled={isLoading}>
+          {isLoading ? (
+            <span className="loading-spinner" aria-hidden="true" />
+          ) : (
+            <Icon name="sparkles" size={16} />
+          )}
+          {isLoading ? "Analyzing repository…" : "Explain Repository"}
+          {!isLoading && <Icon name="arrow" size={15} />}
         </button>
       </div>
       <p id="repository-helper" className="helper">
