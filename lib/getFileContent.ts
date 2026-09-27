@@ -4,6 +4,7 @@ type GetFileContentOptions = {
   branch: string;
   path: string;
   headers: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 type GitHubFileResponse = {
@@ -27,6 +28,7 @@ export async function getFileContent({
   branch,
   path,
   headers,
+  signal,
 }: GetFileContentOptions): Promise<RepositoryFileContent> {
   // Encode each segment while preserving folder separators.
   const encodedPath = path
@@ -39,7 +41,7 @@ export async function getFileContent({
     `${encodeURIComponent(username)}/${encodeURIComponent(repo)}` +
     `/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`;
 
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers, signal });
 
   if (response.status === 404) {
     return {

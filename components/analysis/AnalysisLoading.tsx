@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
+import { analysisStages } from "@/data/analysis-stages";
 import styles from "./AnalysisLoading.module.css";
 
 export function AnalysisLoading({
   repositoryName,
+  activeStage = 0,
   onCancel,
 }: {
   repositoryName: string;
+  activeStage?: number;
   onCancel: () => void;
 }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -40,31 +43,37 @@ export function AnalysisLoading({
         <Icon name="github" size={14} />
         <span>{repositoryName}</span>
       </div>
-      <div className={styles.activity}>
-        <div
-          className={styles.progress}
-          role="progressbar"
-          aria-label="Repository analysis in progress"
-        >
-          <span />
-        </div>
-        <div className={styles.progressMeta}>
-          <span>Analysis in progress</span>
-          <span role="timer" aria-live="off">{elapsed} elapsed</span>
-        </div>
-      </div>
-      <div className={styles.skeleton} aria-hidden="true">
-        <div className={styles.skeletonCard}>
-          <span className={styles.skeletonHeading} />
-          <span />
-          <span />
-          <span className={styles.shortLine} />
-        </div>
-        <div className={styles.skeletonCard}>
-          <span className={styles.skeletonHeading} />
-          <span />
-          <span className={styles.shortLine} />
-        </div>
+      <ol className={styles.stages} aria-label="Analysis steps">
+        {analysisStages.map((stage, index) => {
+          const active = index === activeStage;
+          const complete = index < activeStage;
+
+          return (
+            <li
+              key={stage}
+              className={`${styles.step} ${active ? styles.active : complete ? styles.complete : ""}`}
+              aria-current={active ? "step" : undefined}
+            >
+              <span className={styles.stepIcon} aria-hidden="true">
+                {complete ? (
+                  <Icon name="check" size={14} />
+                ) : active ? (
+                  <span className="loading-spinner" />
+                ) : (
+                  index + 1
+                )}
+              </span>
+              <span className={styles.stepLabel}>{stage}</span>
+              <span className={styles.stepState}>
+                {complete ? "Complete" : active ? "In progress" : "Waiting"}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <div className={styles.progressMeta}>
+        <span>Step {activeStage + 1} of {analysisStages.length}</span>
+        <span role="timer" aria-live="off">{elapsed} elapsed</span>
       </div>
       <p className={styles.note}>
         {elapsedSeconds >= 45

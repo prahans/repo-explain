@@ -29,6 +29,21 @@ type GitHubFileResponse = {
   content?: string;
 };
 
+type AnalysisStage = 0 | 1 | 2 | 3;
+
+type RepositoryRequestOptions = {
+  signal?: AbortSignal;
+  onProgress?: (stage: AnalysisStage) => void;
+};
+
+type AnalysisStreamEvent =
+  | { type: "progress"; stage: AnalysisStage }
+  | { type: "result"; data: unknown }
+  | { type: "error"; message: string; status: number };
+
+const repositoryRequestError =
+  "Could not retrieve repository data from GitHub. Please try again.";
+
 const githubHeaders = {
   Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
   Accept: "application/vnd.github+json",
@@ -62,30 +77,136 @@ export async function POST(request: Request) {
     );
   }
 
+  const username = body.username.trim();
+  const repo = body.repo.trim();
+
+  if (request.headers.get("accept")?.includes("application/x-ndjson")) {
+    return streamRepositoryResponse(request, username, repo);
+  }
+
   try {
-    return await getRepositoryResponse(body.username.trim(), body.repo.trim());
+    return await getRepositoryResponse(username, repo, {
+      signal: request.signal,
+    });
   } catch (error) {
+    if (request.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
+
     console.error("GitHub repository request failed:", error);
 
     return Response.json(
-      {
-        message:
-          "Could not retrieve repository data from GitHub. Please try again.",
-      },
+      { message: repositoryRequestError },
       { status: 502 },
     );
   }
 }
 
-async function getRepositoryResponse(username: string, repo: string) {
+function streamRepositoryResponse(
+  request: Request,
+  username: string,
+  repo: string,
+) {
+  const encoder = new TextEncoder();
+  const cancellation = new AbortController();
+  const signal = AbortSignal.any([request.signal, cancellation.signal]);
+  let closed = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const close = () => {
+        signal.removeEventListener("abort", close);
+
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
+      };
+
+      const send = (event: AnalysisStreamEvent) => {
+        if (!closed && !signal.aborted) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        }
+      };
+
+      signal.addEventListener("abort", close, { once: true });
+
+      if (signal.aborted) {
+        close();
+        return;
+      }
+
+      void (async () => {
+        try {
+          const response = await getRepositoryResponse(username, repo, {
+            signal,
+            onProgress: (stage) => send({ type: "progress", stage }),
+          });
+
+          signal.throwIfAborted();
+          const data = await response.json();
+
+          if (response.ok) {
+            send({ type: "result", data });
+          } else {
+            send({
+              type: "error",
+              message: data.message || repositoryRequestError,
+              status: response.status,
+            });
+          }
+        } catch (error) {
+          if (!signal.aborted) {
+            console.error("GitHub repository request failed:", error);
+            send({
+              type: "error",
+              message: repositoryRequestError,
+              status: 502,
+            });
+          }
+        } finally {
+          close();
+        }
+      })();
+    },
+    cancel(reason) {
+      // The consumer already closed the stream; abort pending GitHub reads.
+      closed = true;
+      cancellation.abort(reason);
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Content-Type-Options": "nosniff",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+async function getRepositoryResponse(
+  username: string,
+  repo: string,
+  { signal, onProgress }: RepositoryRequestOptions = {},
+) {
+  const reportProgress = (stage: AnalysisStage) => {
+    signal?.throwIfAborted();
+    onProgress?.(stage);
+  };
+
   // --------------------------------
   // 1. Repository information
   // --------------------------------
+
+  reportProgress(0);
 
   const response = await fetch(
     `https://api.github.com/repos/${username}/${repo}`,
     {
       headers: githubHeaders,
+      signal,
     },
   );
 
@@ -119,10 +240,13 @@ async function getRepositoryResponse(username: string, repo: string) {
   // 2. Root files/folders
   // --------------------------------
 
+  reportProgress(1);
+
   const contentsResponse = await fetch(
     `https://api.github.com/repos/${username}/${repo}/contents`,
     {
       headers: githubHeaders,
+      signal,
     },
   );
 
@@ -153,6 +277,7 @@ async function getRepositoryResponse(username: string, repo: string) {
     `https://api.github.com/repos/${username}/${repo}/git/trees/${data.default_branch}?recursive=1`,
     {
       headers: githubHeaders,
+      signal,
     },
   );
 
@@ -178,6 +303,8 @@ async function getRepositoryResponse(username: string, repo: string) {
   // 4. Find important files
   // --------------------------------
 
+  reportProgress(2);
+
   const importantPaths = new Set(getImportantFiles(tree));
 
   const importantFiles = tree.filter((item) => importantPaths.has(item.path));
@@ -192,6 +319,7 @@ async function getRepositoryResponse(username: string, repo: string) {
     `https://api.github.com/repos/${username}/${repo}/contents/README.md?ref=${data.default_branch}`,
     {
       headers: githubHeaders,
+      signal,
     },
   );
 
@@ -229,6 +357,7 @@ async function getRepositoryResponse(username: string, repo: string) {
     `https://api.github.com/repos/${username}/${repo}/contents/package.json?ref=${data.default_branch}`,
     {
       headers: githubHeaders,
+      signal,
     },
   );
 
@@ -284,6 +413,7 @@ async function getRepositoryResponse(username: string, repo: string) {
       branch: repository.defaultBranch,
       path: file.path,
       headers: githubHeaders,
+      signal,
     });
 
     fileContents.push(result);
@@ -346,11 +476,14 @@ async function getRepositoryResponse(username: string, repo: string) {
   // 9. Generate the AI overview
   // --------------------------------
 
+  reportProgress(3);
+
   let overview: RepositoryOverview;
 
   try {
     overview = await generateOverview(repositoryContext);
   } catch (error) {
+    signal?.throwIfAborted();
     console.error("AI overview generation failed:", error);
 
     return Response.json(
@@ -362,6 +495,8 @@ async function getRepositoryResponse(username: string, repo: string) {
   // --------------------------------
   // 10. Return everything
   // --------------------------------
+
+  signal?.throwIfAborted();
 
   return Response.json({
     repository,

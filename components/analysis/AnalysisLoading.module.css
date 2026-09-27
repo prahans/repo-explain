@@ -62,25 +62,69 @@
   flex-shrink: 0;
 }
 
-.activity {
-  width: min(100%, 410px);
-  margin-top: 26px;
+.stages {
+  display: grid;
+  gap: 7px;
+  width: min(100%, 460px);
+  margin-top: 25px;
+  list-style: none;
+  text-align: left;
 }
 
-.progress {
-  overflow: hidden;
-  height: 4px;
-  border-radius: 4px;
-  background: #f1e8df;
+.step {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 14px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  transition: background-color 160ms, border-color 160ms;
 }
 
-.progress > span {
-  display: block;
-  width: 35%;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
-  animation: travel 1.8s ease-in-out infinite;
+.active {
+  border-color: #f0ded1;
+  background: #fff7f1;
+  color: #9c4929;
+}
+
+.complete {
+  color: #536b36;
+}
+
+.stepIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 25px;
+  height: 25px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: #fafaf8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.active .stepIcon {
+  border-color: transparent;
+  background: transparent;
+}
+
+.complete .stepIcon {
+  border-color: #e2e8d8;
+  background: #f0f5e8;
+}
+
+.stepLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.stepState {
+  flex-shrink: 0;
+  font-size: 11px;
 }
 
 .progressMeta {
@@ -88,45 +132,11 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 6px 12px;
-  margin-top: 10px;
+  width: min(100%, 432px);
+  margin-top: 16px;
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-}
-
-.skeleton {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 12px;
-  width: min(100%, 480px);
-  margin-top: 27px;
-}
-
-.skeletonCard {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px;
-  border: 1px solid #eeeee8;
-  border-radius: 10px;
-  background: #fdfdfa;
-}
-
-.skeletonCard > span {
-  height: 6px;
-  border-radius: 4px;
-  background: #eeefe8;
-}
-
-.skeletonCard > .skeletonHeading {
-  width: 45%;
-  height: 8px;
-  margin-bottom: 5px;
-  background: #e3e5da;
-}
-
-.skeletonCard > .shortLine {
-  width: 70%;
 }
 
 .note {
@@ -160,19 +170,13 @@
   to { transform: rotate(360deg); }
 }
 
-@keyframes travel {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(390%); }
-}
-
 @media (max-width: 480px) {
   .surface { padding: 34px 20px 26px; }
   .title { font-size: 20px; }
-  .skeleton { grid-template-columns: 1fr; }
-  .skeletonCard:last-child { display: none; }
+  .step { gap: 9px; padding: 11px 9px; font-size: 12px; }
+  .stepState { font-size: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ring,
-  .progress > span { animation: none; }
+  .ring { animation: none; }
 }
