@@ -41,6 +41,29 @@ const overviewSchema = z.object({
         ),
     }),
   ),
+
+  architecture: z
+    .array(
+      z.object({
+        name: z
+          .string()
+          .min(1)
+          .describe("A short name for a major part of the application."),
+
+        description: z
+          .string()
+          .min(1)
+          .describe(
+            "Explain its responsibility and how it connects to other parts. " +
+              "Mention supporting file paths when available.",
+          ),
+
+        layer: z
+          .enum(["Browser", "Server", "External service", "Output"])
+          .describe("The category that best describes this part."),
+      }),
+    )
+    .max(6),
 });
 
 export type RepositoryOverview = z.infer<typeof overviewSchema>;
