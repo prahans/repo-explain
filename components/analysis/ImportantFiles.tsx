@@ -15,15 +15,28 @@ export function ImportantFileCard({
           <Icon name="file" size={17} className="shrink-0 text-accent" />
           <span className="break-all">{file.path}</span>
         </h3>
-        <span className="tag">{file.type}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {file.explanationStatus === "unavailable" && (
+            <span className="tag">Not explained</span>
+          )}
+          <span className="tag">{file.type}</span>
+        </div>
       </div>
-      <p className="mt-4 text-base font-medium">{file.purpose}</p>
-      <p className="body-copy mt-2">
-        <span className="font-medium text-foreground">Why it matters: </span>
+      <p className="mt-4 break-words text-base font-medium">{file.purpose}</p>
+      <p className="body-copy mt-2 break-words">
+        {file.explanationStatus !== "unavailable" && (
+          <span className="font-medium text-foreground">Why it matters: </span>
+        )}
         {file.significance}
       </p>
+      {file.explanationStatus === "available" && file.truncated && (
+        <p className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-muted">
+          <Icon name="info" size={13} className="mt-1 shrink-0" />
+          Based on the supplied excerpt; the full file was not analyzed.
+        </p>
+      )}
       <span className="file-index" aria-hidden="true">
-        0{index + 1}
+        {String(index + 1).padStart(2, "0")}
       </span>
     </article>
   );
@@ -34,7 +47,7 @@ export function ImportantFiles({ files }: { files: ImportantFile[] }) {
     <section>
       <h2 className="section-heading">Good places to start</h2>
       <p className="section-description">
-        The files that help the rest of the codebase make sense.
+        What selected files do and why they matter to the project.
       </p>
       <div className="mt-6 grid gap-4">
         {files.map((file, index) => (

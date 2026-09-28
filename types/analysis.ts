@@ -21,11 +21,16 @@ export type ProjectNode = {
   children?: ProjectNode[];
 };
 
-export type ImportantFile = {
+export type FileExplanation = {
   path: string;
-  type: string;
   purpose: string;
   significance: string;
+};
+
+export type ImportantFile = FileExplanation & {
+  type: string;
+  explanationStatus?: "available" | "unavailable";
+  truncated?: boolean;
 };
 
 export type ArchitectureNode = {

@@ -346,6 +346,8 @@ async function getRepositoryResponse(
   // 6. package.json - OPTIONAL
   // --------------------------------
 
+  let packageContent: string | null = null;
+
   const packageInfo = {
     name: null as string | null,
     scripts: {} as Record<string, string>,
@@ -365,7 +367,7 @@ async function getRepositoryResponse(
     const packageData: GitHubFileResponse = await packageResponse.json();
 
     if (packageData.content) {
-      const packageContent = Buffer.from(
+      packageContent = Buffer.from(
         packageData.content,
         "base64",
       ).toString("utf-8");
@@ -399,11 +401,23 @@ async function getRepositoryResponse(
     packageInfo.devDependencies,
   );
 
+  const MAX_SOURCE_CHARACTERS = 6_000;
   const fileContents: RepositoryFileContent[] = [];
+  const previouslyReadFiles = new Map<string, string | null>([
+    ["README.md", readmeContent],
+    ["package.json", packageContent],
+  ]);
 
   for (const file of importantFiles) {
-    // These root files were already fetched in sections 5 and 6.
-    if (file.path === "README.md" || file.path === "package.json") {
+    // Reuse these reads as file-level evidence without another GitHub request.
+    if (previouslyReadFiles.has(file.path)) {
+      const content = previouslyReadFiles.get(file.path) ?? null;
+      fileContents.push({
+        path: file.path,
+        content: content?.slice(0, MAX_SOURCE_CHARACTERS) ?? null,
+        truncated: (content?.length ?? 0) > MAX_SOURCE_CHARACTERS,
+        error: content === null ? "File content is unavailable" : null,
+      });
       continue;
     }
 
@@ -425,7 +439,6 @@ async function getRepositoryResponse(
 
   const MAX_STRUCTURE_PATHS = 200;
   const MAX_README_CHARACTERS = 6_000;
-  const MAX_SOURCE_CHARACTERS = 6_000;
 
   // Prefer paths closer to the repository root.
   const structurePaths = tree

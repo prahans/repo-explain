@@ -2,6 +2,7 @@ import "server-only";
 
 import { GoogleGenAI } from "@google/genai";
 import * as z from "zod";
+import { filterFileExplanations } from "./filterFileExplanations";
 
 // Define the response our application expects.
 const overviewSchema = z.object({
@@ -44,6 +45,12 @@ const overviewSchema = z.object({
 
 export type RepositoryOverview = z.infer<typeof overviewSchema>;
 
+// Keep the model's output schema strict, but recover useful overview text when
+// individual file explanations are malformed or unsupported by the context.
+const overviewParsingSchema = overviewSchema.extend({
+  fileExplanations: z.unknown(),
+});
+
 export async function generateOverview(
   repositoryContext: Record<string, unknown>,
 ): Promise<RepositoryOverview> {
@@ -76,13 +83,13 @@ export async function generateOverview(
       Write concise, plain-language explanations.
 
       For fileExplanations:
-- Explain only files in selectedFiles that have readable content
-  and no reading error.
-- Copy each file's path exactly from selectedFiles.
-- Base purpose and significance on the supplied code.
-- When content is truncated, describe only what the excerpt supports.
-- Do not invent functions, routes, or behavior.
-- Return an empty array if no readable source files were supplied.
+      - Explain only files in selectedFiles that have readable content
+        and no reading error.
+      - Copy each file's path exactly from selectedFiles.
+      - Base purpose and significance on the supplied code.
+      - When content is truncated, describe only what the excerpt supports.
+      - Do not invent functions, routes, or behavior.
+      - Return an empty array if no readable source files were supplied.
     `,
 
     input: JSON.stringify(repositoryContext),
@@ -102,5 +109,13 @@ export async function generateOverview(
 
   const parsed: unknown = JSON.parse(text);
 
-  return overviewSchema.parse(parsed);
+  const overview = overviewParsingSchema.parse(parsed);
+
+  return {
+    ...overview,
+    fileExplanations: filterFileExplanations(
+      overview.fileExplanations,
+      repositoryContext.selectedFiles,
+    ),
+  };
 }
