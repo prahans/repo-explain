@@ -20,24 +20,38 @@ const responseSchema = z.object({
   tree: z.array(z.object({ path: z.string(), type: z.string() })),
   importantFiles: z.array(z.object({ path: z.string(), type: z.string() })),
   fileContents: z
-    .array(z.object({
-      path: z.string(),
-      truncated: z.boolean().default(false),
-      error: z.string().nullable().default(null),
-    }))
+    .array(
+      z.object({
+        path: z.string(),
+        truncated: z.boolean().default(false),
+        error: z.string().nullable().default(null),
+      }),
+    )
     .default([]),
   overview: z.object({
     summary: z.string().min(1),
     targetAudience: z.string().min(1),
     limitations: z.array(z.string()),
     fileExplanations: z
-      .array(z.object({
-        path: z.string(),
-        purpose: z.string(),
-        significance: z.string(),
-      }))
+      .array(
+        z.object({
+          path: z.string(),
+          purpose: z.string(),
+          significance: z.string(),
+        }),
+      )
       .default([]),
   }),
+  architecture: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().min(1),
+        layer: z.enum(["Browser", "Server", "External service", "Output"]),
+      }),
+    )
+    .max(6)
+    .default([]),
 });
 
 export function mapRepositoryResponse(value: unknown): LiveRepositoryAnalysis {
@@ -50,7 +64,9 @@ export function mapRepositoryResponse(value: unknown): LiveRepositoryAnalysis {
   }
 
   const data = parsed.data;
-  const fileDetails = new Map(data.fileContents.map((file) => [file.path, file]));
+  const fileDetails = new Map(
+    data.fileContents.map((file) => [file.path, file]),
+  );
   const importantPaths = new Set(data.importantFiles.map((file) => file.path));
   const explanations = new Map<string, FileExplanation>();
 
@@ -127,11 +143,11 @@ export function mapRepositoryResponse(value: unknown): LiveRepositoryAnalysis {
         path: file.path,
         type: file.type,
         purpose: explanation?.purpose ?? "No file explanation available.",
-        significance: explanation?.significance ?? (
-          details?.error
+        significance:
+          explanation?.significance ??
+          (details?.error
             ? "The file could not be read for this analysis."
-            : "The analysis did not return an explanation for this file."
-        ),
+            : "The analysis did not return an explanation for this file."),
         explanationStatus: explanation ? "available" : "unavailable",
         truncated: details?.truncated ?? false,
       };
