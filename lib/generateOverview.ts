@@ -113,6 +113,23 @@ export async function generateOverview(
       - When content is truncated, describe only what the excerpt supports.
       - Do not invent functions, routes, or behavior.
       - Return an empty array if no readable source files were supplied.
+
+      For architecture:
+- Identify up to six major parts supported by the supplied context.
+- Explain responsibilities and connections, rather than listing
+  every folder or dependency.
+- Use Browser for code that executes in the user's browser.
+- Use Server for backend or server-side execution.
+- Use External service for databases, storage, or external APIs.
+  This category does not imply that the service is cloud-hosted.
+- Use Output only when a distinct generated artifact or result
+  is an important part of the architecture.
+- Include only categories that actually apply.
+- Do not invent a backend, database, authentication, or external service.
+- A dependency alone does not prove that a feature is implemented.
+- Distinguish documented architecture from behavior visible in code.
+- If the context is insufficient, return an empty array and explain
+  the gap in limitations.
     `,
 
     input: JSON.stringify(repositoryContext),
