@@ -1,5 +1,15 @@
 import "server-only";
 
+type GeminiApiError = {
+  statusCode?: number;
+  status?: number;
+  body?: string;
+  message?: string;
+  headers?: {
+    get?: (name: string) => string | null;
+  };
+};
+
 import { GoogleGenAI } from "@google/genai";
 import * as z from "zod";
 import { filterFileExplanations } from "./filterFileExplanations";
@@ -85,10 +95,44 @@ export async function generateOverview(
 
   const ai = new GoogleGenAI({ apiKey });
 
-  const result = await ai.interactions.create({
-    model: "gemini-3.8-flash",
+  const originalFetch = globalThis.fetch;
 
-    system_instruction: `
+  globalThis.fetch = async (...args) => {
+    const input = args[0];
+
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+    if (url.includes("generativelanguage.googleapis.com")) {
+      console.log("🚨 ACTUAL GEMINI HTTP REQUEST", {
+        time: new Date().toISOString(),
+        url,
+      });
+    }
+
+    const response = await originalFetch(...args);
+
+    if (url.includes("generativelanguage.googleapis.com")) {
+      console.log("🚨 GEMINI HTTP RESPONSE", {
+        time: new Date().toISOString(),
+        status: response.status,
+        retryAfter: response.headers.get("retry-after"),
+      });
+    }
+
+    return response;
+  };
+
+  try {
+    const result = await ai.interactions.create(
+      {
+        model: "gemini-3.8-flash",
+
+        system_instruction: `
       You explain software repositories to beginner developers.
 
       Use only the supplied repository context as evidence.
@@ -132,30 +176,47 @@ export async function generateOverview(
   the gap in limitations.
     `,
 
-    input: JSON.stringify(repositoryContext),
+        input: JSON.stringify(repositoryContext),
 
-    response_format: {
-      type: "text",
-      mime_type: "application/json",
-      schema: z.toJSONSchema(overviewSchema),
-    },
-  });
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: z.toJSONSchema(overviewSchema),
+        },
+      },
+      {
+        maxRetries: 0,
+      },
+    );
 
-  const text = result.output_text;
+    const text = result.output_text;
 
-  if (!text?.trim()) {
-    throw new Error("Gemini returned no overview");
+    if (!text?.trim()) {
+      throw new Error("Gemini returned no overview");
+    }
+
+    const parsed: unknown = JSON.parse(text);
+
+    const overview = overviewParsingSchema.parse(parsed);
+
+    return {
+      ...overview,
+      fileExplanations: filterFileExplanations(
+        overview.fileExplanations,
+        repositoryContext.selectedFiles,
+      ),
+    };
+  } catch (error: unknown) {
+    const geminiError = error as GeminiApiError;
+
+    console.error("RAW GEMINI ERROR", {
+      statusCode: geminiError.statusCode,
+      status: geminiError.status,
+      body: geminiError.body,
+      retryAfter: geminiError.headers?.get?.("retry-after"),
+      message: geminiError.message,
+    });
+
+    throw error;
   }
-
-  const parsed: unknown = JSON.parse(text);
-
-  const overview = overviewParsingSchema.parse(parsed);
-
-  return {
-    ...overview,
-    fileExplanations: filterFileExplanations(
-      overview.fileExplanations,
-      repositoryContext.selectedFiles,
-    ),
-  };
 }
