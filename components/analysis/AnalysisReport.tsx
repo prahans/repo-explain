@@ -98,12 +98,12 @@ export function AnalysisReport({
             ) : (
               <PendingSection title="Architecture" />
             ))}
-          {activeSection === "how-it-works" &&
-            (analysis.steps.length > 0 ? (
-              <HowItWorks steps={analysis.steps} />
-            ) : (
-              <PendingSection title="How it works" />
-            ))}
+          {activeSection === "how-it-works" && (
+            <HowItWorks
+              repository={analysis.repository}
+              selectedFileCount={analysis.importantFiles.length}
+            />
+          )}
           {activeSection === "improvements" &&
             (analysis.improvements.length > 0 ? (
               <ImprovementsSection improvements={analysis.improvements} />
