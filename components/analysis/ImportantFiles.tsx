@@ -22,8 +22,8 @@ export function ImportantFileCard({
           <span className="tag">{file.type}</span>
         </div>
       </div>
-      <p className="mt-4 break-words text-base font-medium">{file.purpose}</p>
-      <p className="body-copy mt-2 break-words">
+      <p className="mt-4 wrap-break text-base font-medium">{file.purpose}</p>
+      <p className="body-copy mt-2 wrap-break">
         {file.explanationStatus !== "unavailable" && (
           <span className="font-medium text-foreground">Why it matters: </span>
         )}
