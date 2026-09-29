@@ -6,6 +6,8 @@ import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import ts from "typescript";
 import { filterFileExplanations } from "../lib/filterFileExplanations.ts";
+import * as improvementsLibrary from "../lib/improvements.ts";
+import { repositoryWithOpportunities, severalImprovements, smallRepository, smallImprovements } from "./fixtures/improvements.mjs";
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL("../lib/generateOverview.ts", import.meta.url), "utf8");
@@ -31,7 +33,9 @@ const overview = {
   limitations: [],
   fileExplanations: [explanation],
   architecture: [{ name: "API", description: "Processes requests.", layer: "Server" }],
+  improvements: { summary: "The supplied excerpt is too small for strong recommendations.", improvements: [] },
 };
+const expectedOverview = { ...overview, improvementsStatus: "complete" };
 
 function completed(provider, text = JSON.stringify(overview), overrides = {}) {
   return {
@@ -91,6 +95,7 @@ function harness({ env = {}, gemini = [completed("gemini")], openai = [completed
       if (specifier === "@google/genai") return { GoogleGenAI: MockGemini };
       if (specifier === "openai") return MockOpenAI;
       if (specifier === "./filterFileExplanations") return { filterFileExplanations };
+      if (specifier === "./improvements") return improvementsLibrary;
       if (specifier === "zod" || specifier === "openai/helpers/zod") return require(specifier);
       throw new Error(`Unexpected overview dependency: ${specifier}`);
     },
@@ -116,7 +121,7 @@ for (const provider of ["gemini", "openai"]) {
       ],
     };
     const h = harness({ env: { AI_PROVIDER: provider }, [provider]: [completed(provider, JSON.stringify(data))] });
-    assert.deepEqual(await h.generate(context), overview);
+    assert.deepEqual(await h.generate(context), expectedOverview);
     assert.deepEqual(h.requests.map((r) => r.provider), [provider]);
     const body = h.requests[0].body;
     assert.equal(body.store, false);
@@ -126,6 +131,10 @@ for (const provider of ["gemini", "openai"]) {
     assert.equal(schema.additionalProperties, false);
     assert.equal(schema.properties.fileExplanations.type, "array");
     assert.equal(schema.properties.architecture.maxItems, 6);
+    assert.equal(Object.keys(schema.properties).at(-1), "improvements");
+    assert.equal(schema.properties.improvements.properties.improvements.maxItems, 8);
+    const prompt = provider === "gemini" ? body.system_instruction : body.input[0].content;
+    assert.ok(prompt.indexOf("For improvements") > prompt.indexOf("For architecture"));
     if (provider === "openai") assert.equal(body.text.format.strict, true);
   });
 
@@ -155,7 +164,7 @@ for (const provider of ["gemini", "openai"]) {
 
 test("auto mode uses Gemini first and does not call OpenAI after success", async () => {
   const h = harness();
-  assert.deepEqual(await h.generate(context), overview);
+  assert.deepEqual(await h.generate(context), expectedOverview);
   assert.deepEqual(h.requests.map((r) => r.provider), ["gemini"]);
 });
 
@@ -172,7 +181,7 @@ for (const [name, error] of [
 ]) {
   test(`auto mode falls back once for ${name}`, async () => {
     const h = harness({ gemini: [error] });
-    assert.deepEqual(await h.generate(context), overview);
+    assert.deepEqual(await h.generate(context), expectedOverview);
     assert.deepEqual(h.requests.map((r) => r.provider), ["gemini", "openai"]);
     assert.equal(h.requests[0].body.input, h.requests[1].body.input[1].content);
   });
@@ -215,7 +224,7 @@ test("OpenAI refusals have a useful error and do not log refusal text", async ()
 
 test("normalizes provider/model configuration and supports a blank primary key with the alias", async () => {
   const h = harness({ env: { AI_PROVIDER: " OpenAI ", OPENAI_API_KEY: " ", GPT_6_LUNA_API_KEY: " alias-key ", OPENAI_MODEL: " custom-model " } });
-  assert.deepEqual(await h.generate(context), overview);
+  assert.deepEqual(await h.generate(context), expectedOverview);
   assert.equal(h.config.openai.apiKey, "alias-key");
   assert.equal(h.requests[0].body.model, "custom-model");
 });
@@ -245,4 +254,51 @@ test("propagates OpenAI fallback failures without retrying or exposing raw error
   await assert.rejects(h.generate(context), (error) => error instanceof OpenAI.APIError && error.status === 429);
   assert.deepEqual(h.requests.map((r) => r.provider), ["gemini", "openai"]);
   assert.deepEqual(h.logs, [["Gemini daily quota exhausted; falling back to OpenAI."]]);
+});
+
+for (const provider of ["gemini", "openai"]) {
+  for (const [name, repository, improvements] of [
+    ["several evidenced opportunities", repositoryWithOpportunities, severalImprovements],
+    ["a small utility", smallRepository, smallImprovements],
+  ]) {
+    test(`${provider}: generates improvements for ${name} in the same single request`, async () => {
+      const h = harness({
+        env: { AI_PROVIDER: provider === "gemini" ? "auto" : "openai" },
+        [provider]: [completed(provider, JSON.stringify({ ...overview, improvements }))],
+      });
+      const result = await h.generate(repository);
+      assert.equal(result.improvementsStatus, "complete");
+      assert.deepEqual(result.improvements, improvements);
+      assert.equal(result.summary, overview.summary);
+      assert.deepEqual(result.architecture, overview.architecture);
+      assert.equal(h.requests.length, 1);
+      const input = provider === "gemini" ? h.requests[0].body.input : h.requests[0].body.input[1].content;
+      assert.deepEqual(JSON.parse(input), repository);
+    });
+  }
+
+  for (const invalid of [
+    { summary: "Bad shape", improvements: "not-an-array" },
+    { ...smallImprovements, improvements: [{ ...smallImprovements.improvements[0], relatedFiles: ["invented.ts"] }] },
+  ]) {
+    test(`${provider}: invalid Improvements does not discard other sections or trigger another call`, async () => {
+      const h = harness({ env: { AI_PROVIDER: provider }, [provider]: [completed(provider, JSON.stringify({ ...overview, improvements: invalid }))] });
+      const result = await h.generate(context);
+      assert.equal(result.improvementsStatus, "error");
+      assert.equal(result.improvements, null);
+      assert.deepEqual(result.fileExplanations, overview.fileExplanations);
+      assert.equal(result.summary, overview.summary);
+      assert.equal(h.requests.length, 1);
+    });
+  }
+}
+
+test("a legacy model response without Improvements is unavailable, not an empty success", async () => {
+  const { improvements, ...legacy } = overview;
+  assert.ok(improvements);
+  const h = harness({ gemini: [completed("gemini", JSON.stringify(legacy))] });
+  const result = await h.generate(context);
+  assert.equal(result.improvementsStatus, "not-available");
+  assert.equal(result.improvements, null);
+  assert.equal(h.requests.length, 1);
 });

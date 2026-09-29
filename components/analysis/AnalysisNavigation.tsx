@@ -1,5 +1,5 @@
 import { Icon, type IconName } from "@/components/ui/Icon";
-import type { AnalysisSection } from "@/types/analysis";
+import type { AnalysisSection, ImprovementsStatus } from "@/types/analysis";
 
 const sections: { id: AnalysisSection; label: string; icon: IconName }[] = [
   { id: "overview", label: "Overview", icon: "overview" },
@@ -14,9 +14,11 @@ const sections: { id: AnalysisSection; label: string; icon: IconName }[] = [
 export function AnalysisNavigation({
   active,
   onChange,
+  improvementsStatus,
 }: {
   active: AnalysisSection;
   onChange: (section: AnalysisSection) => void;
+  improvementsStatus?: ImprovementsStatus;
 }) {
   return (
     <aside className="analysis-sidebar">
@@ -33,7 +35,22 @@ export function AnalysisNavigation({
           >
             <Icon name={icon} size={17} />
             <span>{label}</span>
-            {active === id && (
+            {id === "improvements" && improvementsStatus === "generating" ? (
+              <span className="ml-auto shrink-0" role="status">
+                <span className="loading-spinner" aria-hidden="true" />
+                <span className="sr-only">Generating improvements</span>
+              </span>
+            ) : id === "improvements" && improvementsStatus === "waiting" ? (
+              <span className="ml-auto shrink-0 text-muted">
+                <Icon name="clock" size={14} />
+                <span className="sr-only">Waiting for analysis</span>
+              </span>
+            ) : id === "improvements" && improvementsStatus === "error" ? (
+              <span className="ml-auto shrink-0 text-muted">
+                <Icon name="alert" size={14} />
+                <span className="sr-only">Improvements unavailable</span>
+              </span>
+            ) : active === id && (
               <span className="ml-auto size-1.5 shrink-0 rounded-full bg-accent" />
             )}
           </button>

@@ -189,32 +189,44 @@ export const mockAnalysis: RepositoryAnalysis = {
   ],
   improvements: [
     {
+      id: "error-handling",
       title: "Improve error handling",
       description:
         "Give users clear, actionable feedback when a repository is unavailable or an analysis cannot finish.",
-      priority: "High",
-      category: "Reliability",
+      reason: "Unavailable repositories need a clear path to recovery.",
+      recommendation: "Provide an actionable message for each supported failure state.",
+      priority: "high",
+      category: "code-quality",
     },
     {
       title: "Add tests for core flows",
+      id: "core-flow-tests",
       description:
         "Cover repository input, analysis states, and navigation as the application grows.",
-      priority: "High",
-      category: "Testing",
+      reason: "Changes to input and navigation can affect the entire sample flow.",
+      recommendation: "Exercise invalid input, failed analyses, and section navigation.",
+      priority: "high",
+      category: "testing",
     },
     {
       title: "Improve documentation",
+      id: "contributor-documentation",
       description:
         "Add a setup guide and a short walkthrough so first-time contributors can find their footing.",
-      priority: "Medium",
-      category: "Developer experience",
+      reason: "New contributors need to distinguish demo behavior from connected features.",
+      recommendation: "Document setup and identify the parts of the demo that use sample data.",
+      priority: "medium",
+      category: "developer-experience",
     },
     {
       title: "Cache repeat analyses",
+      id: "cache-repeat-analyses",
       description:
         "Consider reusing recent results for unchanged repositories once real analysis is connected.",
-      priority: "Low",
-      category: "Performance",
+      reason: "Repeated requests for an unchanged revision could duplicate future analysis work.",
+      recommendation: "Evaluate revision-based caching when the analysis backend is connected.",
+      priority: "low",
+      category: "performance",
     },
   ],
 };

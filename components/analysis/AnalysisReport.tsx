@@ -45,6 +45,7 @@ export function AnalysisReport({
         <AnalysisNavigation
           active={activeSection}
           onChange={setActiveSection}
+          improvementsStatus={analysis.improvementsStatus}
         />
         <div
           className="analysis-content"
@@ -104,12 +105,13 @@ export function AnalysisReport({
               selectedFileCount={analysis.importantFiles.length}
             />
           )}
-          {activeSection === "improvements" &&
-            (analysis.improvements.length > 0 ? (
-              <ImprovementsSection improvements={analysis.improvements} />
-            ) : (
-              <PendingSection title="Improvements" />
-            ))}
+          {activeSection === "improvements" && (
+            <ImprovementsSection
+              improvements={analysis.improvements}
+              summary={analysis.improvementsSummary}
+              status={analysis.improvementsStatus}
+            />
+          )}
         </div>
       </div>
       <div className="report-footer">

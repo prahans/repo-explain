@@ -6,6 +6,12 @@ import { zodTextFormat } from "openai/helpers/zod";
 import * as z from "zod";
 
 import { filterFileExplanations } from "./filterFileExplanations";
+import {
+  getContextPaths,
+  improvementsSchema,
+  parseImprovements,
+  type ImprovementsData,
+} from "./improvements";
 
 type AIProvider = "gemini" | "openai";
 
@@ -64,14 +70,20 @@ const overviewSchema = z.object({
       }),
     )
     .max(6),
+  // Keep Improvements last in the same structured generation as the overview.
+  improvements: improvementsSchema,
 });
 
-export type RepositoryOverview = z.infer<typeof overviewSchema>;
+export type RepositoryOverview = Omit<z.infer<typeof overviewSchema>, "improvements"> & {
+  improvements: ImprovementsData | null;
+  improvementsStatus: "complete" | "error" | "not-available";
+};
 
 // Both providers receive the strict schema, but malformed file explanations
 // can be discarded locally without losing the rest of an otherwise valid report.
 const overviewParsingSchema = overviewSchema.extend({
   fileExplanations: z.unknown(),
+  improvements: z.unknown().optional(),
 });
 
 const OVERVIEW_SYSTEM_PROMPT = `
@@ -116,6 +128,38 @@ For architecture:
 - Distinguish documented architecture from behavior visible in code.
 - If the context is insufficient, return an empty architecture array
   and explain the gap in limitations.
+
+For improvements (generate this section LAST, after architecture):
+- Return a short summary and a small list of concrete, repository-specific
+  recommendations. Aim for 3–8 only when supported; 0–2 is appropriate for
+  small repositories or limited evidence. Never invent issues to fill a quota.
+- Each item needs a unique id, title, category, priority, description of the
+  observed pattern, reason it matters, an actionable recommendation, and
+  relatedFiles (an empty array when no specific file applies).
+- Allowed categories: architecture, code-quality, performance, security,
+  testing, developer-experience. Omit categories without evidence.
+- Allowed priorities: high, medium, low. High means a material impact on
+  reliability, maintainability, security, or major architecture; medium is
+  worth addressing but not urgent; low is smaller cleanup or DX work.
+  Do not inflate priority to make a recommendation look important.
+- Base every suggestion on the supplied context. Explain the specific
+  observation and WHY the proposed change would help this repository.
+- Use readable selectedFiles as evidence for code behavior. Respect reading
+  errors and truncation. Structure paths show layout, not unseen code behavior.
+- relatedFiles must copy exact paths from selectedFiles or structure.paths.
+  Do not invent files, dependencies, vulnerabilities, metrics, or scores.
+- Do not claim code is broken, slow, or vulnerable without concrete evidence.
+  When uncertain, say "may", "could", or "consider validating" and explain why.
+- Do not claim there are no tests just because no tests were selected.
+- Do not criticize architecture merely because another design is possible.
+- Avoid generic advice and duplicate issues expressed in different words.
+- If no strong improvements are supported, explain the limited evidence in
+  the summary and return an empty improvements array.
+
+Preserve the response field order: summary, targetAudience, limitations,
+fileExplanations, architecture, improvements. The application already derives
+the tech stack and project structure from metadata and paths; use these as
+context without inventing additional analysis fields.
 `;
 
 function readEnv(name: string): string | undefined {
@@ -281,7 +325,7 @@ function isGeminiDailyQuotaError(error: unknown): boolean {
 function parseOverview(
   text: string,
   provider: AIProvider,
-  selectedFiles: unknown,
+  repositoryContext: Record<string, unknown>,
 ): RepositoryOverview {
   const providerName = provider === "gemini" ? "Gemini" : "OpenAI";
 
@@ -302,9 +346,16 @@ function parseOverview(
     throw new Error(`${providerName} returned an invalid repository overview`);
   }
 
+  const improvements = parseImprovements(
+    result.data.improvements,
+    getContextPaths(repositoryContext),
+  );
+
   return {
     ...result.data,
-    fileExplanations: filterFileExplanations(result.data.fileExplanations, selectedFiles),
+    fileExplanations: filterFileExplanations(result.data.fileExplanations, repositoryContext.selectedFiles),
+    improvements: improvements.data,
+    improvementsStatus: improvements.status,
   };
 }
 
@@ -339,5 +390,5 @@ export async function generateOverview(
   }
 
   // Validation failures must never trigger another provider request.
-  return parseOverview(text, usedProvider, repositoryContext.selectedFiles);
+  return parseOverview(text, usedProvider, repositoryContext);
 }

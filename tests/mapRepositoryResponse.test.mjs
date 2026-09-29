@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
 import { buildProjectTree } from "../lib/projectTree.ts";
+import { parseImprovements } from "../lib/improvements.ts";
+import { severalImprovements } from "./fixtures/improvements.mjs";
 
 // Compile only the mapper so its Next.js alias can use the real tree builder
 // without introducing a separate test runner or a general-purpose TS loader.
@@ -19,6 +21,7 @@ const compiledModule = { exports: {} };
 new Function("require", "module", "exports", outputText)(
   (specifier) => {
     if (specifier === "@/lib/projectTree") return { buildProjectTree };
+    if (specifier === "./improvements") return { parseImprovements };
     if (specifier === "zod") return require(specifier);
     throw new Error(`Unexpected mapper dependency: ${specifier}`);
   },
@@ -26,6 +29,46 @@ new Function("require", "module", "exports", outputText)(
   compiledModule.exports,
 );
 const { mapRepositoryResponse } = compiledModule.exports;
+
+test("maps validated Improvements and preserves the rest of the repository analysis", () => {
+  const input = response(["src/search.ts", "src/report.ts", "package.json"]);
+  input.overview.improvements = severalImprovements;
+  const result = mapRepositoryResponse(input);
+  assert.equal(result.improvementsStatus, "complete");
+  assert.equal(result.improvementsSummary, severalImprovements.summary);
+  assert.deepEqual(result.improvements, severalImprovements.improvements);
+  assert.equal(result.repository.name, "example");
+  assert.equal(result.technologies[0].name, "TypeScript");
+  assert.equal(result.importantFiles.length, 3);
+});
+
+test("distinguishes an empty complete section, missing data, and a section-level error", () => {
+  for (const [improvements, expected] of [
+    [{ summary: "No strong recommendations from these files.", improvements: [] }, "complete"],
+    [undefined, "not-available"],
+    [null, "error"],
+    [severalImprovements, "error"], // Paths are absent from this repository.
+    [{ summary: 42, improvements: [] }, "error"],
+  ]) {
+    const input = response();
+    input.overview.improvements = improvements;
+    const result = mapRepositoryResponse(input);
+    assert.equal(result.improvementsStatus, expected);
+    assert.deepEqual(result.improvements, []);
+    assert.equal(result.overview.summary, input.overview.summary);
+  }
+});
+
+test("preserves server section errors and unavailable status after JSON serialization", () => {
+  for (const status of ["error", "not-available"]) {
+    const input = response();
+    input.overview.improvements = null;
+    input.overview.improvementsStatus = status;
+    const result = mapRepositoryResponse(JSON.parse(JSON.stringify(input)));
+    assert.equal(result.improvementsStatus, status);
+    assert.equal(result.importantFiles.length, 1);
+  }
+});
 
 const file = (path) => ({ path, type: "blob" });
 const explanation = (path, purpose = "Exports the application entry point.", significance = "Connects the application's main components.") => ({

@@ -1,3 +1,12 @@
+import type { Improvement } from "../lib/improvements";
+
+export type {
+  Improvement,
+  ImprovementCategory,
+  ImprovementPriority,
+  ImprovementsData,
+} from "../lib/improvements";
+
 export type AnalysisSection =
   | "overview"
   | "tech-stack"
@@ -41,12 +50,12 @@ export type ArchitectureNode = {
 
 export type ExplanationStep = { title: string; description: string };
 
-export type Improvement = {
-  title: string;
-  description: string;
-  priority: "High" | "Medium" | "Low";
-  category: string;
-};
+export type ImprovementsStatus =
+  | "waiting"
+  | "generating"
+  | "complete"
+  | "error"
+  | "not-available";
 
 export type RepositoryAnalysis = {
   repository: {
