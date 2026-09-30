@@ -1,619 +1,397 @@
 # RepoExplain
 
-> Understand an unfamiliar GitHub repository without reading every file first.
+**Understand unfamiliar GitHub repositories without reading every file first.**
 
-RepoExplain is a full-stack AI-powered developer tool that analyzes public GitHub repositories and turns their structure and selected source files into a structured, beginner-friendly technical explanation.
+RepoExplain analyzes a public GitHub repository and turns its codebase into a structured, beginner-friendly explanation of its technologies, project structure, important files, architecture, and possible improvements.
 
-Instead of sending an entire repository blindly to an AI model, RepoExplain first inspects the repository through the GitHub API, detects its technologies, selects useful files, builds a bounded analysis context, and generates structured sections such as architecture, important files, project structure, and improvement suggestions.
+Paste a GitHub repository URL, and RepoExplain fetches the repository data, selects useful files, builds a bounded analysis context, and streams an AI-generated report back to the browser.
 
-To reduce repeated AI usage and cost, generated analyses are cached in MongoDB using the repository's Git tree revision. If the repository has not changed, RepoExplain reuses the stored analysis instead of calling the AI model again.
-
----
-
-## Live
-
-**Application:**  
-https://repo-explain-plxppq2o0-prahans1.vercel.app/
-
-**Source:**  
-https://github.com/prahans/repo-explain
-
-> RepoExplain currently supports public GitHub repositories.
+**Live demo:** https://repo-explain-gamma.vercel.app/
 
 ---
 
-## What RepoExplain Provides
+## What RepoExplain does
 
-Given a repository such as:
+When you submit a public GitHub repository, RepoExplain:
 
-```text
-https://github.com/owner/repository
-```
+- fetches repository metadata from the GitHub API
+- scans the repository tree
+- detects technologies from the repository structure and dependencies
+- selects important files instead of sending the entire repository to the model
+- reads relevant source files, `README.md`, and `package.json`
+- builds a bounded repository context
+- generates a structured AI explanation
+- streams analysis sections to the UI as they become available
+- validates generated output before displaying it
+- caches analyses by repository revision
+- stores completed and partial analyses in MongoDB
+- records repository history for signed-in users
 
-RepoExplain builds a report containing:
-
-- Repository overview
-- Intended audience
-- Detected technologies
-- Project structure
-- Important file explanations
-- High-level architecture
-- Repository-specific improvement suggestions
-- Analysis limitations when evidence is incomplete
-
-The goal is not to claim complete understanding of every line of code. RepoExplain gives developers a useful architectural starting point while explicitly acknowledging truncated, unavailable, or uninspected content.
+The goal is not to replace reading the code. RepoExplain is intended to give you a useful mental model of an unfamiliar codebase before you start exploring it yourself.
 
 ---
 
-## Core Engineering Ideas
+## Analysis output
 
-RepoExplain is built around a few principles that go beyond simply sending a GitHub URL to an LLM.
+A repository analysis is divided into six sections:
 
-### 1. Analyze selectively
+### Overview
 
-The application does not send an entire repository to the model.
+A plain-language summary of what the project appears to do, who it is for, and any limitations in the available evidence.
 
-It:
+### Tech Stack
 
-1. Fetches repository metadata.
-2. Fetches the repository tree.
-3. Detects important files.
-4. Reads only selected files.
-5. Limits source excerpts and repository structure included in the AI context.
-6. Sends a structured context to the AI provider.
+Technologies detected from repository metadata, dependency files, and repository structure.
 
-This keeps model input bounded and makes the analysis more predictable.
+### Project Structure
 
----
+A view of the repository layout to help identify the major directories and files.
 
-### 2. Cache by repository revision
+### Important Files
 
-RepoExplain uses the repository's Git tree SHA as a revision identifier.
+Explanations of selected files that are likely to be useful starting points when reading the codebase.
 
-The effective cache identity is:
+### Architecture
 
-```text
-repository
-+
-Git tree revision
-+
-RepoExplain analysis version
-```
+A high-level explanation of the major parts of the application and how they connect.
 
-Conceptually:
+### Improvements
 
-```text
-repoKey + treeSHA + analysisVersion
-```
+Repository-specific suggestions related to areas such as:
 
-For example:
+- architecture
+- code quality
+- performance
+- security
+- testing
+- developer experience
 
-```text
-prahans/wanderlust
-+
-3a4f91c...
-+
-1
-```
-
-If the same repository is requested again and the Git tree SHA has not changed, RepoExplain retrieves the previous analysis from MongoDB.
-
-No new AI generation is required.
-
-If the repository owner pushes a new commit that changes the tree, the SHA changes and RepoExplain generates a fresh analysis.
-
-The separate `analysisVersion` allows RepoExplain itself to invalidate old cached results when the analysis schema or prompting strategy changes.
+Recommendations are generated only when the supplied repository evidence supports them.
 
 ---
 
-## Cost-Aware Analysis Flow
-
-### First request
+## How it works
 
 ```text
-User enters repository URL
-            │
-            ▼
-       GitHub API
-            │
-            ▼
-  Read current tree SHA
-            │
-            ▼
-      MongoDB lookup
-            │
-        CACHE MISS
-            │
-            ▼
-Select important repository files
-            │
-            ▼
+GitHub repository URL
+        │
+        ▼
+Validate owner/repository
+        │
+        ▼
+GitHub REST API
+        │
+        ├── Repository metadata
+        ├── Root contents
+        └── Recursive repository tree
+        │
+        ▼
+Check cached analysis
+using repository tree revision
+        │
+        ├── Cache hit ──────────────► Return stored analysis
+        │
+        ▼
+Select important files
+        │
+        ├── README.md
+        ├── package.json
+        ├── configuration files
+        ├── entry points
+        └── selected source files
+        │
+        ▼
+Detect technologies
+        │
+        ▼
 Build bounded AI context
-            │
-            ▼
-       AI Provider
-            │
-            ▼
-Structured repository analysis
-            │
-            ▼
-        MongoDB
-            │
-            ▼
-          UI
-```
-
-The expensive AI request happens here.
-
-### Later request — repository unchanged
-
-```text
-User enters same repository
-            │
-            ▼
-       GitHub API
-            │
-            ▼
- Check current tree SHA
-            │
-            ▼
-      MongoDB lookup
-            │
-         CACHE HIT
-            │
-            ├───────────────X AI Provider
-            │                 not called
-            ▼
-     Cached analysis
-            │
-            ▼
-          UI
-```
-
-RepoExplain still checks GitHub for the current repository revision so that it does not serve stale analysis indefinitely.
-
-However, when the stored revision matches the current revision, it skips the expensive source-context preparation and AI generation.
-
----
-
-## System Architecture
-
-```mermaid
-flowchart LR
-    U[User / Browser]
-
-    subgraph NEXT["Next.js Application"]
-        UI[React UI]
-        API["/api/github/repository"]
-        AUTH[Auth.js]
-        HISTORY["/api/history"]
-        PIPE[Analysis Pipeline]
-        CACHE[Cache Layer]
-    end
-
-    GH[GitHub REST API]
-    AI["Gemini / OpenAI"]
-    DB[(MongoDB Atlas)]
-
-    U --> UI
-    UI --> API
-
-    API --> GH
-    API --> CACHE
-
-    CACHE --> DB
-
-    API --> PIPE
-    PIPE --> GH
-    PIPE --> AI
-    PIPE --> DB
-
-    API --> UI
-
-    U --> AUTH
-    AUTH --> UI
-
-    UI --> HISTORY
-    HISTORY --> DB
-```
-
----
-
-## Request Lifecycle
-
-```mermaid
-sequenceDiagram
-    participant User as Browser
-    participant API as Next.js API
-    participant GitHub as GitHub API
-    participant Mongo as MongoDB Atlas
-    participant AI as AI Provider
-
-    User->>API: POST /api/github/repository
-
-    API->>GitHub: Fetch repository metadata
-    GitHub-->>API: Metadata
-
-    API->>GitHub: Fetch repository tree
-    GitHub-->>API: Tree + revision SHA
-
-    API->>Mongo: Find repoKey + revision + analysisVersion
-
-    alt Cache hit
-        Mongo-->>API: Stored analysis
-        API-->>User: Replay progressive analysis events
-    else Cache miss
-        API->>GitHub: Fetch README / package metadata / selected files
-        GitHub-->>API: Repository context
-
-        API->>AI: Structured bounded context
-
-        AI-->>API: Stream structured sections
-
-        API->>Mongo: Persist normalized analysis
-
-        API-->>User: Stream progressive analysis events
-    end
-```
-
----
-
-## Progressive Analysis
-
-RepoExplain does not need to wait for one giant response before updating the interface.
-
-The analysis protocol is divided into sections:
-
-```text
-overview
-   ↓
-techStack
-   ↓
-projectStructure
-   ↓
-importantFiles
-   ↓
-architecture
-   ↓
-improvements
-```
-
-The server streams newline-delimited JSON events to the frontend.
-
-Example conceptual stream:
-
-```json
-{"type":"repository","data":{...}}
-{"type":"prepared","data":{...}}
-{"type":"section","section":"overview","data":{...}}
-{"type":"section","section":"techStack","data":[...]}
-{"type":"section","section":"architecture","data":[...]}
-{"type":"complete"}
-```
-
-The React client progressively applies these events to the current report.
-
-Cached analyses are replayed through the same event model, so the UI does not need a separate rendering architecture for fresh and cached results.
-
----
-
-## AI Pipeline
-
-The model does not receive unrestricted repository input.
-
-RepoExplain builds a repository context containing approximately:
-
-```text
-Repository metadata
-      │
-      ├── language
-      ├── branch
-      ├── description
-      └── repository information
-
-Detected technologies
-      │
-      ▼
-
-README excerpt
-      │
-      ▼
-
-package.json information
-      │
-      ▼
-
-Bounded repository structure
-      │
-      ▼
-
-Selected important file excerpts
-      │
-      ▼
-
-Structured AI generation
-```
-
-Source excerpts and repository context are deliberately bounded before generation.
-
-The application also tracks whether content was truncated or could not be read so that the model can avoid claiming unsupported knowledge.
-
----
-
-## Structured Output & Validation
-
-RepoExplain uses **Zod** schemas to define the expected AI output.
-
-The generated report is divided into strongly typed sections including:
-
-```text
-overview
-techStack
-projectStructure
-importantFiles
-architecture
-improvements
-```
-
-Model output is validated before it is accepted by the application.
-
-For example, architecture nodes must use one of the supported layers:
-
-```text
-Browser
-Server
-External service
-Output
-```
-
-Improvement recommendations are also validated against known repository paths so the UI does not silently display invented file references.
-
----
-
-## Prompt-Injection Safety
-
-Repository source code, comments, README text, and configuration files are treated as **untrusted data**.
-
-The AI system instructions explicitly tell the model not to treat repository content as instructions.
-
-Conceptually:
-
-```text
-Repository code
-README
-Comments
-Configuration
         │
         ▼
- UNTRUSTED INPUT
+Gemini or OpenAI
         │
         ▼
-Structured analysis instructions
+Structured + validated sections
         │
         ▼
-Validated model output
+NDJSON streaming response
+        │
+        ▼
+Progressive analysis UI
+        │
+        ▼
+MongoDB persistence
+        │
+        └── Signed-in user history
 ```
-
-This reduces the risk of a repository containing text that attempts to redirect or manipulate the analysis process.
 
 ---
 
-## Persistence Strategy
+## Repository analysis pipeline
 
-RepoExplain deliberately does **not** save full source files in MongoDB.
+### 1. Repository validation
 
-The persistence layer stores useful derived analysis data such as:
+The client accepts GitHub repository URLs in the form:
 
 ```text
-Repository metadata
-Detected technologies
-Project structure metadata
-Important-file explanations
-Architecture
-Improvement recommendations
-Section status
-Repository revision
-Analysis version
+https://github.com/<owner>/<repository>
 ```
 
-It does not persist the raw source-code contents used during generation.
+The URL is validated before the analysis request is sent.
 
-This keeps stored documents smaller and avoids maintaining unnecessary copies of repository source code.
+RepoExplain currently targets **public GitHub repositories**.
 
----
+### 2. GitHub metadata and tree
 
-## MongoDB Data Model
+The server retrieves:
 
-RepoExplain separates shared analysis data from user-specific history.
+- repository name
+- full repository name
+- description
+- primary language
+- default branch
+- GitHub URL
+- star count
+- license
+- root files and folders
+- recursive Git tree
 
-```mermaid
-erDiagram
-    REPOSITORY_ANALYSES ||--o{ USER_REPOSITORY_HISTORY : referenced_by
+The tree SHA is used as the repository revision for cache invalidation.
 
-    REPOSITORY_ANALYSES {
-        ObjectId _id
-        string repoKey
-        string revision
-        number analysisVersion
-        object repository
-        object analysis
-        string status
-        date analyzedAt
-    }
+### 3. Cache lookup
 
-    USER_REPOSITORY_HISTORY {
-        ObjectId _id
-        string userId
-        string repoKey
-        ObjectId repositoryAnalysisId
-        number visitCount
-        boolean isFavorite
-        date firstVisitedAt
-        date lastVisitedAt
-    }
-```
-
-### `repositoryAnalyses`
-
-Shared cache containing the expensive AI-generated result.
-
-A unique index is based on:
+Before generating a new analysis, RepoExplain checks MongoDB for an existing result matching:
 
 ```text
-repository.repoKey
-source.revision
-metadata.analysisVersion
+repository + tree revision + analysis version
 ```
 
-This prevents duplicate analysis documents for the same repository revision and RepoExplain analysis version.
+If the repository has not changed since the stored analysis was generated, the cached result can be reused and replayed through the same progressive UI.
 
-### `userRepositoryHistory`
+### 4. Important-file selection
 
-Stores the relationship between a signed-in user and repositories they have viewed.
+RepoExplain does not send every file in a repository to the AI model.
 
-It contains:
+It deterministically selects up to **20 important files**, prioritizing files such as:
 
-- Visit count
-- First visit
-- Last visit
-- Favorite state
-- Reference to the shared repository analysis
+- `README.md`
+- `package.json`
+- Next.js and Vite configuration
+- Prisma schema files
+- common application entry points
+- routes
+- controllers
+- models
+- middleware
+- services
+- configuration files
 
-Removing an item from personal history does **not** delete the shared cached analysis.
+Generated directories, dependencies, coverage output, fixtures, and similar paths are excluded from this selection.
 
----
+### 5. Technology detection
 
-## Authentication & Authorization
+Technology detection is performed separately from the language model.
 
-RepoExplain uses **Auth.js / NextAuth** with GitHub OAuth.
+RepoExplain currently recognizes evidence for technologies including:
 
-Authenticated users receive:
+- Next.js
+- React
+- Express
+- NestJS
+- Vue
+- Nuxt
+- Svelte
+- SvelteKit
+- TypeScript
+- JavaScript
+- Python
+- Go
+- Rust
+- Java
+- Ruby
+- Tailwind CSS
+- MongoDB
+- PostgreSQL
+- MySQL
+- SQLite
+- Redis
+- Prisma
 
-- Repository history
-- Visit tracking
-- Favorites
-- Ability to remove repositories from personal history
+Detection uses information such as the GitHub primary language, repository paths, dependencies, and development dependencies.
 
-Authentication identity is determined server-side.
+### 6. Bounded context construction
 
-History mutation routes verify both:
+To keep analysis focused and limit unnecessary model input, RepoExplain bounds the context it sends to the AI.
 
-```text
-history document ID
-+
-authenticated user ID
-```
+The current implementation uses:
 
-so one user cannot modify another user's history by guessing a MongoDB ObjectId.
+- up to **20 selected important files**
+- up to **6,000 characters per selected file**
+- up to **6,000 characters from the README**
+- up to **200 repository structure paths**
 
-Public repository analysis can still be used independently of personal history.
+Truncation information and file-reading errors are passed into the analysis context so the model can account for incomplete evidence.
 
----
-
-## AI Providers
+### 7. AI analysis
 
 RepoExplain supports:
 
-- Google Gemini
-- OpenAI
+- **Google Gemini**
+- **OpenAI**
 
-Provider selection is controlled through environment configuration.
+The provider is configured through environment variables.
 
-The generation pipeline is intentionally designed around:
+The model is instructed to:
+
+- use only supplied repository evidence
+- avoid inventing functionality or architecture
+- distinguish documented plans from implemented behavior
+- acknowledge incomplete or truncated context
+- explain only source files whose contents were actually supplied
+- produce repository-specific improvements instead of generic advice
+
+Repository contents are explicitly treated as **untrusted data rather than instructions**, reducing the risk of prompt instructions embedded inside source files or documentation affecting the analyzer.
+
+### 8. Structured validation
+
+AI output is not accepted as arbitrary text.
+
+RepoExplain uses **Zod schemas** and additional checks to validate generated sections.
+
+For example:
+
+- technology names must match detected technologies
+- project-structure paths must exist in the supplied context
+- important-file explanations are restricted to selected readable files
+- improvement file references must refer to supplied repository paths
+
+Invalid or unsupported sections can be marked as errors without necessarily discarding sections that were successfully generated.
+
+### 9. Progressive streaming
+
+The analysis endpoint supports:
 
 ```text
-one analysis submission
-        ↓
-one AI provider invocation
+application/x-ndjson
 ```
 
-There is no automatic second-provider fallback for the same request, helping avoid accidental duplicate model charges.
+Status updates and completed sections are streamed to the browser while the analysis is running.
+
+The UI can therefore show stages such as repository loading, file scanning, context preparation, and AI generation instead of waiting for the complete report before displaying anything.
+
+Analysis can also be cancelled from the client.
+
+### 10. Persistence
+
+Generated analyses are normalized and persisted to MongoDB.
+
+Stored analyses include information such as:
+
+- repository metadata
+- repository revision
+- analysis version
+- analysis sections
+- individual section statuses
+- completed/partial status
+- files scanned
+- files selected
+- analysis timestamp
+
+Persistence failures are handled separately from the generated response so an otherwise successful analysis does not have to be discarded solely because history storage failed.
 
 ---
 
-## Technology Stack
+## GitHub authentication and repository history
 
-### Application
+RepoExplain uses **Auth.js / NextAuth with GitHub OAuth**.
 
-- Next.js 16
-- React 19
-- TypeScript
-- Tailwind CSS 4
+Authentication is not used to analyze private repositories. Repository analysis is currently limited to public repositories.
 
-### Repository Analysis
+Signing in adds personal history features.
 
-- GitHub REST API
-- Zod
-- Progressive NDJSON streaming
+For authenticated users, RepoExplain records repositories they analyze and provides a dedicated history page where they can:
 
-### AI
+- reopen previous repositories
+- search their history
+- favorite repositories
+- remove repositories from history
+- see visit counts
+- see the last visited time
+- see whether a stored analysis is complete or partial
 
-- Google Gemini
-- OpenAI Responses API
-
-### Persistence
-
-- MongoDB Atlas
-- Mongoose
-
-### Authentication
-
-- Auth.js / NextAuth
-- GitHub OAuth
-- JWT sessions
-
-### Deployment
-
-- Vercel
+Sessions use the JWT strategy, and RepoExplain stores a stable identifier derived from the authenticated GitHub account for associating history records with a user.
 
 ---
 
-## Project Structure
+## Tech stack
+
+| Area            | Technology             |
+| --------------- | ---------------------- |
+| Framework       | Next.js 16             |
+| UI              | React 19               |
+| Language        | TypeScript             |
+| Styling         | Tailwind CSS 4         |
+| Authentication  | Auth.js / NextAuth 5   |
+| Database        | MongoDB                |
+| ODM             | Mongoose               |
+| AI              | Google Gemini / OpenAI |
+| Validation      | Zod                    |
+| Repository data | GitHub REST API        |
+| Streaming       | NDJSON / Web Streams   |
+
+---
+
+## Project structure
 
 ```text
 repo-explain/
-│
 ├── app/
 │   ├── api/
-│   │   ├── auth/
-│   │   ├── github/
-│   │   │   └── repository/
-│   │   └── history/
-│   │
-│   ├── history/
+│   │   ├── auth/              # Auth.js route handlers
+│   │   └── github/            # Repository analysis API
+│   ├── history/               # Authenticated repository history
+│   ├── globals.css
+│   ├── layout.tsx
 │   └── page.tsx
 │
 ├── components/
-│   ├── analysis/
-│   ├── ui/
+│   ├── analysis/              # Analysis report sections and states
+│   ├── AuthButton.tsx
+│   ├── ExampleRepositories.tsx
+│   ├── Hero.tsx
 │   ├── Navbar.tsx
-│   ├── RepoExplain.tsx
+│   ├── RepoExplain.tsx        # Main client analysis workflow
 │   ├── RepositoryForm.tsx
-│   └── RepositoryHistory.tsx
+│   ├── RepositoryHistory.tsx
+│   └── ui/
 │
 ├── lib/
 │   ├── analysisProtocol.ts
+│   ├── analysisRequestGuard.ts
+│   ├── detectTechnologies.ts
 │   ├── generateOverview.ts
-│   ├── progressiveAnalysis.ts
-│   ├── repositoryAnalysisCache.ts
+│   ├── getFileContent.ts
+│   ├── getImportantFiles.ts
+│   ├── mongodb.ts
 │   ├── normalizeRepositoryAnalysis.ts
-│   ├── saveRepositoryAnalysis.ts
 │   ├── recordRepositoryVisit.ts
-│   └── mongodb.ts
+│   ├── repositoryAnalysisCache.ts
+│   ├── saveRepositoryAnalysis.ts
+│   └── streamedJsonSections.ts
 │
 ├── models/
 │   ├── RepositoryAnalysis.ts
 │   └── UserRepositoryHistory.ts
 │
+├── tests/
 ├── types/
-│
 ├── auth.ts
-└── package.json
+├── package.json
+└── tsconfig.json
 ```
 
 ---
 
-## Running Locally
+## Getting started
 
 ### 1. Clone the repository
 
@@ -636,51 +414,61 @@ Create:
 .env.local
 ```
 
+At minimum, the application needs GitHub API access, MongoDB, an AI provider, and Auth.js configuration.
+
 Example:
 
 ```env
-# GitHub API
-GITHUB_TOKEN=
+# GitHub REST API
+GITHUB_TOKEN=your_github_token
 
 # MongoDB
-MONGODB_URI=
-
-# Auth.js
-AUTH_SECRET=
-AUTH_GITHUB_ID=
-AUTH_GITHUB_SECRET=
+MONGODB_URI=your_mongodb_connection_string
 
 # AI provider
 AI_PROVIDER=gemini
 
-# Gemini
-GEMINI_API_KEY=
-GEMINI_MODEL=
+GEMINI_API_KEY=your_gemini_api_key
+# GEMINI_MODEL=optional_model_override
 
 # OpenAI alternative
-OPENAI_API_KEY=
-OPENAI_MODEL=
+# AI_PROVIDER=openai
+# OPENAI_API_KEY=your_openai_api_key
+# OPENAI_MODEL=optional_model_override
+
+# Auth.js / GitHub OAuth
+AUTH_SECRET=your_auth_secret
+AUTH_GITHUB_ID=your_github_oauth_client_id
+AUTH_GITHUB_SECRET=your_github_oauth_client_secret
 ```
 
-Use either Gemini or OpenAI according to `AI_PROVIDER`.
+`GPT_6_LUNA_API_KEY` is also accepted by the current implementation as an alternative OpenAI API-key environment variable.
 
-Never commit `.env.local` or API secrets.
+Supported values for `AI_PROVIDER` are:
+
+```text
+auto
+gemini
+openai
+```
+
+`auto` currently uses the primary Gemini path. RepoExplain intentionally performs **one provider invocation per analysis** and does not automatically retry with or fall back to another AI provider.
 
 ### 4. Configure GitHub OAuth
 
-For local development, configure the GitHub OAuth callback URL as:
+Create a GitHub OAuth application and use this callback URL for local development:
 
 ```text
 http://localhost:3000/api/auth/callback/github
 ```
 
-For production, use:
+For production, replace the origin with your deployed application's domain:
 
 ```text
-https://YOUR_DOMAIN/api/auth/callback/github
+https://your-domain.com/api/auth/callback/github
 ```
 
-### 5. Start the development server
+### 5. Start development
 
 ```bash
 npm run dev
@@ -694,139 +482,152 @@ http://localhost:3000
 
 ---
 
-## Validation
-
-Before deploying:
+## Available scripts
 
 ```bash
-npm run lint
-npx tsc --noEmit
+npm run dev
+```
+
+Starts the Next.js development server.
+
+```bash
 npm run build
 ```
 
+Creates a production build.
+
+```bash
+npm start
+```
+
+Starts the production server after building.
+
+```bash
+npm run lint
+```
+
+Runs ESLint.
+
+For an explicit TypeScript check:
+
+```bash
+npx tsc --noEmit
+```
+
 ---
 
-## Cache Invalidation
+## Caching
 
-There are two ways an existing analysis becomes stale.
-
-### Repository changed
+Repository analyses are cached using:
 
 ```text
-old tree SHA != current tree SHA
+repository key
++
+Git tree revision
++
+analysis version
 ```
 
-RepoExplain performs a fresh analysis.
+Using the Git tree SHA means a cached analysis can be reused while the repository remains unchanged.
 
-### RepoExplain analysis logic changed
-
-Increment:
-
-```ts
-CURRENT_ANALYSIS_VERSION;
-```
-
-For example:
-
-```ts
-export const CURRENT_ANALYSIS_VERSION = 2;
-```
-
-Existing version-1 cached reports will no longer satisfy the version-2 cache lookup.
-
-This makes prompt/schema changes explicit rather than silently mixing different generations of analysis.
+When the default branch changes and GitHub returns a new tree revision, RepoExplain generates a new analysis rather than treating an older result as current.
 
 ---
 
-## Example Cache Decision
+## Reliability and failure handling
 
-```mermaid
-flowchart TD
-    A[Repository submitted] --> B[Fetch current Git tree SHA]
-    B --> C["Lookup MongoDB:<br/>repoKey + revision + analysisVersion"]
+RepoExplain is designed so that repository analysis is not treated as one opaque request.
 
-    C --> D{Cache found?}
+The implementation includes handling for:
 
-    D -->|Yes| E[Replay cached analysis]
-    E --> F[No AI request]
-    F --> G[Render report]
+- malformed repository URLs
+- invalid repository owner/name values
+- inaccessible or missing repositories
+- GitHub API failures
+- duplicate analysis submissions
+- analysis queue saturation
+- client cancellation
+- AI request timeouts
+- malformed or unsupported generated sections
+- partial analyses
+- database/cache failures
 
-    D -->|No| H[Read selected repository context]
-    H --> I[Generate AI analysis]
-    I --> J[Validate structured output]
-    J --> K[Persist normalized result]
-    K --> G
-```
-
----
-
-## Why the Cache Matters
-
-Without caching:
-
-```text
-same repository
-×
-every visitor
-×
-every repeat visit
-=
-another AI request
-```
-
-With revision-aware caching:
-
-```text
-same repository revision
-        ↓
-one generated analysis
-        ↓
-reused by future requests
-```
-
-This makes AI usage dependent primarily on **repository changes**, rather than raw page visits.
-
-That reduces unnecessary model calls while still ensuring updated repositories receive fresh analysis.
+When individual AI sections cannot be validated, successfully generated sections can still remain available rather than automatically discarding the entire report.
 
 ---
 
-## Current Scope
+## Current limitations
 
-RepoExplain currently focuses on:
+RepoExplain is still a beta project.
 
-- Public GitHub repositories
-- Architecture-level understanding
-- Important source files
-- Technology detection
-- Repository-specific recommendations
-- Beginner-friendly explanations
+Some important limitations of the current implementation are:
 
-It intentionally does not claim to perform a complete static analysis or review every line in a repository.
-
----
-
-## Future Ideas
-
-Possible future improvements include:
-
-- Private repository support
-- Repository branch selection
-- Compare two repository revisions
-- Dependency visualization
-- Repository architecture graph
-- Export analysis as Markdown/PDF
-- More granular cache management
-- Background re-analysis
-- GitHub App integration
+- only public GitHub repositories are supported through the product UI
+- RepoExplain does **not** read every file in a repository
+- important-file selection currently favors common JavaScript/TypeScript project patterns
+- selected file contents are intentionally truncated before being sent to the model
+- only the first bounded subset of repository paths is supplied as architecture context
+- GitHub itself may return a truncated recursive tree for very large repositories
+- AI explanations can still be imperfect even though output is grounded and validated
+- there is no automatic AI-provider retry or fallback
+- the application is intended as an onboarding and exploration aid, not as a replacement for code review, static analysis, or security auditing
 
 ---
 
-## Motivation
+## Design principles
 
-Large repositories are often difficult to approach when you are seeing them for the first time.
+### Prefer evidence over guesses
 
-RepoExplain explores a simple idea:
+The analyzer is explicitly told not to invent functionality that is not supported by repository content.
 
-> Before reading thousands of lines of code, give the developer a reliable map of what matters and where to start.
+### Deterministic facts before AI
 
-The interesting engineering challenge is not only generating an explanation—it is deciding what repository context is worth analyzing, validating model output, streaming useful results progressively, avoiding unsupported claims, and preventing repeated AI work when the underlying repository has not changed.
+Technology detection, important-file selection, repository metadata, and structure extraction are handled by application code rather than asking the model to infer everything.
+
+### Send useful context, not the entire repository
+
+RepoExplain deliberately selects and bounds source material instead of blindly uploading the complete codebase.
+
+### Validate model output
+
+Generated content is parsed against structured schemas and checked against known repository data before being accepted.
+
+### Keep the interface responsive
+
+Analysis status and completed sections are streamed progressively so users can see what is happening during longer repository analyses.
+
+### Reuse work when the repository has not changed
+
+Revision-aware caching avoids regenerating the same analysis unnecessarily.
+
+---
+
+## Who is RepoExplain for?
+
+RepoExplain is primarily designed for developers who need to quickly orient themselves in an unfamiliar codebase, including:
+
+- developers joining a new project
+- students learning from open-source repositories
+- contributors exploring a project before making their first change
+- developers evaluating libraries or example applications
+- anyone who wants a high-level map before reading source files directly
+
+---
+
+## Repository
+
+Source code:
+
+https://github.com/prahans/repo-explain
+
+Live application:
+
+https://repo-explain-gamma.vercel.app/
+
+---
+
+## Status
+
+RepoExplain is currently in **beta** and is under active development.
+
+The analysis pipeline, caching behavior, supported repository patterns, and AI output format may continue to evolve.
