@@ -1,3 +1,4 @@
+import { AuthButton } from "@/components/AuthButton";
 import { Navbar } from "@/components/Navbar";
 import { RepoExplain } from "@/components/RepoExplain";
 
@@ -8,6 +9,9 @@ export default function Home() {
         Skip to content
       </a>
       <Navbar />
+      <div className="page-width flex justify-end py-4">
+        <AuthButton />
+      </div>
       <main id="main-content">
         <RepoExplain />
       </main>
