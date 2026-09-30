@@ -1,5 +1,5 @@
 import { Icon, type IconName } from "@/components/ui/Icon";
-import type { AnalysisSection, ImprovementsStatus } from "@/types/analysis";
+import type { AnalysisSection, GeneratedAnalysisSection, SectionStatus } from "@/types/analysis";
 
 const sections: { id: AnalysisSection; label: string; icon: IconName }[] = [
   { id: "overview", label: "Overview", icon: "overview" },
@@ -14,11 +14,11 @@ const sections: { id: AnalysisSection; label: string; icon: IconName }[] = [
 export function AnalysisNavigation({
   active,
   onChange,
-  improvementsStatus,
+  statuses,
 }: {
   active: AnalysisSection;
   onChange: (section: AnalysisSection) => void;
-  improvementsStatus?: ImprovementsStatus;
+  statuses: Record<GeneratedAnalysisSection, SectionStatus>;
 }) {
   return (
     <aside className="analysis-sidebar">
@@ -35,24 +35,7 @@ export function AnalysisNavigation({
           >
             <Icon name={icon} size={17} />
             <span>{label}</span>
-            {id === "improvements" && improvementsStatus === "generating" ? (
-              <span className="ml-auto shrink-0" role="status">
-                <span className="loading-spinner" aria-hidden="true" />
-                <span className="sr-only">Generating improvements</span>
-              </span>
-            ) : id === "improvements" && improvementsStatus === "waiting" ? (
-              <span className="ml-auto shrink-0 text-muted">
-                <Icon name="clock" size={14} />
-                <span className="sr-only">Waiting for analysis</span>
-              </span>
-            ) : id === "improvements" && improvementsStatus === "error" ? (
-              <span className="ml-auto shrink-0 text-muted">
-                <Icon name="alert" size={14} />
-                <span className="sr-only">Improvements unavailable</span>
-              </span>
-            ) : active === id && (
-              <span className="ml-auto size-1.5 shrink-0 rounded-full bg-accent" />
-            )}
+            <SectionIndicator status={id === "how-it-works" ? "complete" : statuses[id]} />
           </button>
         ))}
       </nav>
@@ -62,5 +45,16 @@ export function AnalysisNavigation({
         <span>Understand. Explore. Build.</span>
       </div>
     </aside>
+  );
+}
+
+function SectionIndicator({ status }: { status: SectionStatus }) {
+  const label = status === "not-available" ? "Not available" : status;
+  return (
+    <span className="ml-auto flex shrink-0 items-center text-muted" data-section-status={status}>
+      {status === "generating" ? <span className="loading-spinner" aria-hidden="true" />
+        : <Icon name={status === "complete" ? "check" : status === "error" ? "alert" : "clock"} size={14} />}
+      <span className="sr-only">{label}</span>
+    </span>
   );
 }

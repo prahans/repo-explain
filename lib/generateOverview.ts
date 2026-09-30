@@ -4,87 +4,25 @@ import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import * as z from "zod";
-
 import { filterFileExplanations } from "./filterFileExplanations";
-import {
-  getContextPaths,
-  improvementsSchema,
-  parseImprovements,
-  type ImprovementsData,
-} from "./improvements";
+import { getContextPaths, parseImprovements, type ImprovementsData } from "./improvements";
+import { analysisUpdateSchema, modelAnalysisSchema, sectionOrder, type AnalysisUpdate, type ModelAnalysis, type ModelSection } from "./analysisProtocol";
+import { StreamedJsonSections } from "./streamedJsonSections";
 
-type AIProvider = "gemini" | "openai";
+const REQUEST_TIMEOUT_MS = 120_000;
 
-const REQUEST_TIMEOUT_MS = 60_000;
-
-const overviewSchema = z.object({
-  summary: z
-    .string()
-    .trim()
-    .min(1)
-    .describe("Explain what the project does in 2–4 beginner-friendly sentences."),
-  targetAudience: z
-    .string()
-    .trim()
-    .min(1)
-    .describe("Describe the intended users in 1–2 sentences. State if uncertain."),
-  limitations: z
-    .array(z.string().trim().min(1))
-    .describe(
-      "Briefly list gaps caused by missing files, unreadable files, or truncated content.",
-    ),
-  fileExplanations: z.array(
-    z.object({
-      path: z.string().min(1).describe("The exact relative path from selectedFiles."),
-      purpose: z
-        .string()
-        .trim()
-        .min(1)
-        .describe("Explain what this file does in one or two short sentences."),
-      significance: z
-        .string()
-        .trim()
-        .min(1)
-        .describe("Explain why this file matters to understanding the project."),
-    }),
-  ),
-  architecture: z
-    .array(
-      z.object({
-        name: z
-          .string()
-          .trim()
-          .min(1)
-          .describe("A short name for a major part of the application."),
-        description: z
-          .string()
-          .trim()
-          .min(1)
-          .describe(
-            "Explain its responsibility and how it connects to other parts. " +
-              "Mention supporting file paths when available.",
-          ),
-        layer: z
-          .enum(["Browser", "Server", "External service", "Output"])
-          .describe("The category that best describes this part."),
-      }),
-    )
-    .max(6),
-  // Keep Improvements last in the same structured generation as the overview.
-  improvements: improvementsSchema,
-});
-
-export type RepositoryOverview = Omit<z.infer<typeof overviewSchema>, "improvements"> & {
+export type RepositoryOverview = ModelAnalysis["overview"] & {
+  fileExplanations: ModelAnalysis["importantFiles"];
+  architecture: ModelAnalysis["architecture"];
   improvements: ImprovementsData | null;
   improvementsStatus: "complete" | "error" | "not-available";
+  sectionStatuses: Record<ModelSection, "complete" | "error" | "not-available">;
 };
 
-// Both providers receive the strict schema, but malformed file explanations
-// can be discarded locally without losing the rest of an otherwise valid report.
-const overviewParsingSchema = overviewSchema.extend({
-  fileExplanations: z.unknown(),
-  improvements: z.unknown().optional(),
-});
+type GenerationOptions = {
+  signal?: AbortSignal;
+  onUpdate?: (event: AnalysisUpdate) => void;
+};
 
 const OVERVIEW_SYSTEM_PROMPT = `
 You explain software repositories to beginner developers.
@@ -103,7 +41,7 @@ Respect truncation flags and file-reading errors.
 Do not claim that you reviewed the entire repository.
 Write concise, plain-language explanations.
 
-For fileExplanations:
+For importantFiles:
 - Explain only files in selectedFiles that have readable content
   and no reading error.
 - Copy each file's path exactly from selectedFiles.
@@ -156,239 +94,150 @@ For improvements (generate this section LAST, after architecture):
 - If no strong improvements are supported, explain the limited evidence in
   the summary and return an empty improvements array.
 
-Preserve the response field order: summary, targetAudience, limitations,
-fileExplanations, architecture, improvements. The application already derives
-the tech stack and project structure from metadata and paths; use these as
-context without inventing additional analysis fields.
+Generate exactly these sections in this order:
+1. overview (summary, targetAudience, limitations)
+2. techStack (copy the supplied technologies)
+3. projectStructure (copy the supplied structure.paths)
+4. importantFiles (file explanations)
+5. architecture
+6. improvements
+
+Fully complete each section before beginning the next. Return one JSON object
+with these six keys in this exact order. Do not mix sections or output commentary
+outside the object. Tech stack and structure come from repository metadata;
+copy those facts exactly instead of inventing or reclassifying them.
 `;
 
 function readEnv(name: string): string | undefined {
   return process.env[name]?.trim() || undefined;
 }
 
-async function generateOverviewWithGemini(input: string): Promise<string> {
+async function streamGemini(input: string, signal: AbortSignal, onText: (text: string) => void) {
   const apiKey = readEnv("GEMINI_API_KEY");
-
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is missing");
-  }
-
+  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
   const ai = new GoogleGenAI({ apiKey });
-  const result = await ai.interactions.create(
-    {
-      model: readEnv("GEMINI_MODEL") ?? "gemini-3.8-flash",
-      system_instruction: OVERVIEW_SYSTEM_PROMPT,
-      input,
-      response_format: {
-        type: "text",
-        mime_type: "application/json",
-        schema: z.toJSONSchema(overviewSchema),
-      },
-      store: false,
-    },
-    {
-      // Let the provider router handle daily quota exhaustion without SDK retries.
-      maxRetries: 0,
-      timeout: REQUEST_TIMEOUT_MS,
-    },
-  );
+  const stream = await ai.interactions.create({
+    model: readEnv("GEMINI_MODEL") ?? "gemini-3.8-flash",
+    system_instruction: OVERVIEW_SYSTEM_PROMPT,
+    input,
+    response_format: { type: "text", mime_type: "application/json", schema: z.toJSONSchema(modelAnalysisSchema) },
+    store: false,
+    stream: true,
+  }, { maxRetries: 0, timeout: REQUEST_TIMEOUT_MS, signal });
 
-  if (result.status !== "completed") {
-    throw new Error(`Gemini overview generation did not complete (${result.status})`);
+  let completed = false;
+  for await (const event of stream) {
+    signal.throwIfAborted();
+    if (event.event_type === "step.delta" && event.delta.type === "text") {
+      onText(event.delta.text);
+    } else if (event.event_type === "interaction.completed") {
+      if (event.interaction.status !== "completed") throw new Error("Gemini did not complete the analysis.");
+      completed = true;
+    } else if (event.event_type === "error" ||
+      (event.event_type === "interaction.status_update" &&
+        ["failed", "cancelled", "incomplete", "budget_exceeded", "requires_action"].includes(event.status))) {
+      throw new Error("Gemini could not finish the analysis stream.");
+    }
   }
-
-  return result.output_text ?? "";
+  if (!completed) throw new Error("Gemini ended the stream before confirming completion.");
 }
 
-async function generateOverviewWithOpenAI(input: string): Promise<string> {
-  // Retain compatibility with the existing key alias.
+async function streamOpenAI(input: string, signal: AbortSignal, onText: (text: string) => void) {
   const apiKey = readEnv("OPENAI_API_KEY") ?? readEnv("GPT_6_LUNA_API_KEY");
-
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is missing (or set GPT_6_LUNA_API_KEY)");
-  }
-
-  const openai = new OpenAI({
-    apiKey,
-    maxRetries: 0,
-    timeout: REQUEST_TIMEOUT_MS,
-  });
-
-  // Request strict structured output, then validate it with the same recovery
-  // rules as Gemini. responses.parse() would reject malformed file entries first.
-  const response = await openai.responses.create({
+  if (!apiKey) throw new Error("OPENAI_API_KEY is missing (or set GPT_6_LUNA_API_KEY)");
+  const ai = new OpenAI({ apiKey, maxRetries: 0, timeout: REQUEST_TIMEOUT_MS });
+  const stream = await ai.responses.create({
     model: readEnv("OPENAI_MODEL") ?? "gpt-6-luna",
     reasoning: { effort: "low" },
     input: [
       { role: "system", content: OVERVIEW_SYSTEM_PROMPT },
       { role: "user", content: input },
     ],
-    text: {
-      format: zodTextFormat(overviewSchema, "repository_overview"),
-    },
+    text: { format: zodTextFormat(modelAnalysisSchema, "repository_analysis") },
     store: false,
-  });
+    stream: true,
+  }, { signal });
 
-  if (response.status !== "completed") {
-    const reason = response.incomplete_details?.reason ?? response.error?.code;
-    throw new Error(
-      `OpenAI overview generation did not complete (${reason ?? response.status ?? "unknown status"})`,
-    );
-  }
-
-  const refused = response.output.some(
-    (item) =>
-      item.type === "message" &&
-      item.content.some((content) => content.type === "refusal"),
-  );
-
-  if (refused) {
-    throw new Error("OpenAI refused to generate the repository overview");
-  }
-
-  return response.output_text;
-}
-
-// SDK versions expose the API payload as error, body, or a JSON-encoded body.
-function getErrorRecords(
-  value: unknown,
-  seen = new Set<object>(),
-): Record<string, unknown>[] {
-  if (typeof value === "string") {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return [];
+  let completed = false;
+  for await (const event of stream) {
+    signal.throwIfAborted();
+    if (event.type === "response.output_text.delta") {
+      onText(event.delta);
+    } else if (event.type === "response.completed") {
+      completed = true;
+    } else if (event.type === "response.refusal.delta" || event.type === "response.refusal.done") {
+      throw new Error("OpenAI refused to generate the repository analysis.");
+    } else if (event.type === "error" || event.type === "response.failed" || event.type === "response.incomplete") {
+      throw new Error("OpenAI could not finish the analysis stream.");
     }
   }
-
-  if (!value || typeof value !== "object" || Array.isArray(value) || seen.has(value)) {
-    return [];
-  }
-
-  seen.add(value);
-  const record = value as Record<string, unknown>;
-  return [
-    record,
-    ...getErrorRecords(record.error, seen),
-    ...getErrorRecords(record.body, seen),
-  ];
+  if (!completed) throw new Error("OpenAI ended the stream before confirming completion.");
 }
 
-function errorValueToString(value: unknown): string {
-  if (typeof value === "string") return value;
-
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function isGeminiDailyQuotaError(error: unknown): boolean {
-  const records = getErrorRecords(error);
-  const statuses = records.flatMap((record) => [record.statusCode, record.status, record.code]);
-  const httpStatus = statuses
-    .map((value) => String(value))
-    .find((value) => /^[45]\d{2}$/.test(value));
-
-  if (httpStatus !== undefined && httpStatus !== "429") {
-    return false;
-  }
-
-  const codes = statuses
-    .filter((value): value is string => typeof value === "string")
-    .map((value) => value.trim().toLowerCase());
-
-  // Interactions distinguishes daily quotas from temporary rate limits by code:
-  // https://ai.google.dev/gemini-api/docs/api-errors
-  if (codes.includes("quota_exceeded")) return true;
-  if (codes.includes("rate_limit_exceeded") || codes.includes("too_many_requests")) {
-    return false;
-  }
-
-  if (httpStatus !== "429" && !codes.includes("resource_exhausted")) {
-    return false;
-  }
-
-  // Older RESOURCE_EXHAUSTED responses need explicit evidence of a daily limit.
-  // A bare 429 or requests/tokens-per-minute limit must not trigger paid fallback.
-  const text = records
-    .flatMap((record) => [record.message, record.details, record.body])
-    .map(errorValueToString)
-    .join(" ")
-    .toLowerCase();
-
-  return /per[_\s-]?day|daily[\s_-]+(?:quota|limit)|\brpd\b/.test(text);
-}
-
-function parseOverview(
-  text: string,
-  provider: AIProvider,
-  repositoryContext: Record<string, unknown>,
-): RepositoryOverview {
-  const providerName = provider === "gemini" ? "Gemini" : "OpenAI";
-
-  if (!text.trim()) {
-    throw new Error(`${providerName} returned no overview`);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    // Parse errors can contain repository text; keep it out of application logs.
-    throw new Error(`${providerName} returned invalid JSON`);
-  }
-
-  const result = overviewParsingSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error(`${providerName} returned an invalid repository overview`);
-  }
-
-  const improvements = parseImprovements(
-    result.data.improvements,
-    getContextPaths(repositoryContext),
-  );
-
-  return {
-    ...result.data,
-    fileExplanations: filterFileExplanations(result.data.fileExplanations, repositoryContext.selectedFiles),
-    improvements: improvements.data,
-    improvementsStatus: improvements.status,
-  };
-}
-
+/** One submission, one provider invocation. No automatic retries or fallback. */
 export async function generateOverview(
   repositoryContext: Record<string, unknown>,
+  { signal: requestSignal, onUpdate }: GenerationOptions = {},
 ): Promise<RepositoryOverview> {
   const provider = (readEnv("AI_PROVIDER") ?? "auto").toLowerCase();
   if (provider !== "auto" && provider !== "gemini" && provider !== "openai") {
-    throw new Error(
-      `Invalid AI_PROVIDER "${provider}". Expected "auto", "gemini", or "openai".`,
-    );
+    throw new Error(`Invalid AI_PROVIDER "${provider}". Expected "auto", "gemini", or "openai".`);
   }
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout;
+  signal.throwIfAborted();
+  const paths = getContextPaths(repositoryContext);
+  const technologies = new Set(
+    Array.isArray(repositoryContext.technologies) ? repositoryContext.technologies : [],
+  );
+  const result: RepositoryOverview = {
+    summary: "", targetAudience: "", limitations: [], fileExplanations: [], architecture: [],
+    improvements: null, improvementsStatus: "not-available",
+    sectionStatuses: { overview: "not-available", techStack: "not-available", projectStructure: "not-available", importantFiles: "not-available", architecture: "not-available", improvements: "not-available" },
+  };
 
-  const input = JSON.stringify(repositoryContext);
-  let usedProvider: AIProvider = provider === "openai" ? "openai" : "gemini";
-  let text: string;
-
-  if (usedProvider === "openai") {
-    text = await generateOverviewWithOpenAI(input);
-  } else {
-    try {
-      text = await generateOverviewWithGemini(input);
-    } catch (error: unknown) {
-      if (provider !== "auto" || !isGeminiDailyQuotaError(error)) {
-        throw error;
-      }
-
-      console.warn("Gemini daily quota exhausted; falling back to OpenAI.");
-      usedProvider = "openai";
-      text = await generateOverviewWithOpenAI(input);
+  const parser = new StreamedJsonSections(sectionOrder, (key, value) => {
+    signal.throwIfAborted();
+    const section = key as ModelSection; // The parser checks the exact ordered keys.
+    let data = value;
+    if (section === "importantFiles" && Array.isArray(value)) {
+      data = filterFileExplanations(value, repositoryContext.selectedFiles);
     }
-  }
+    if (section === "improvements") {
+      const parsed = parseImprovements(value, paths);
+      data = parsed.data;
+    }
+    const parsed = analysisUpdateSchema.safeParse({ type: "section", section, data });
+    const supported = !Array.isArray(data) ||
+      (section !== "techStack" || data.every((name) => technologies.has(name))) &&
+      (section !== "projectStructure" || data.every((path) => typeof path === "string" && paths.has(path)));
+    if (!parsed.success || parsed.data.type !== "section" || !supported) {
+      result.sectionStatuses[section] = "error";
+      if (section === "improvements") result.improvementsStatus = "error";
+      onUpdate?.({ type: "section-status", section, status: "error", message: "This section did not contain valid, supported analysis." });
+    } else {
+      const event = parsed.data;
+      result.sectionStatuses[section] = "complete";
+      switch (event.section) {
+        case "overview": Object.assign(result, event.data); break;
+        case "importantFiles": result.fileExplanations = event.data; break;
+        case "architecture": result.architecture = event.data; break;
+        case "improvements":
+          result.improvements = event.data;
+          result.improvementsStatus = "complete";
+          break;
+      }
+      onUpdate?.(event);
+    }
+    const next = sectionOrder[sectionOrder.indexOf(section) + 1];
+    if (next) onUpdate?.({ type: "section-status", section: next, status: "generating" });
+  });
 
-  // Validation failures must never trigger another provider request.
-  return parseOverview(text, usedProvider, repositoryContext);
+  onUpdate?.({ type: "section-status", section: "overview", status: "generating" });
+  const input = JSON.stringify(repositoryContext);
+  // "auto" keeps the existing primary provider, but may not spend a second request.
+  if (provider === "openai") await streamOpenAI(input, signal, (text) => parser.push(text));
+  else await streamGemini(input, signal, (text) => parser.push(text));
+  parser.finish();
+  return result;
 }

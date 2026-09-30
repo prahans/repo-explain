@@ -50,12 +50,16 @@ export type ArchitectureNode = {
 
 export type ExplanationStep = { title: string; description: string };
 
-export type ImprovementsStatus =
+export type GeneratedAnalysisSection = Exclude<AnalysisSection, "how-it-works">;
+
+export type SectionStatus =
   | "waiting"
   | "generating"
   | "complete"
   | "error"
   | "not-available";
+
+export type ImprovementsStatus = SectionStatus;
 
 export type RepositoryAnalysis = {
   repository: {

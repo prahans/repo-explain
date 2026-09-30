@@ -1177,7 +1177,7 @@ details[open] > .tree-row .tree-chevron {
     min-height: 42px;
     padding-inline: 12px;
   }
-  .analysis-nav button > span:last-child:not(:first-of-type) {
+  .analysis-nav button > span:last-child:not(:first-of-type):not([data-section-status]) {
     display: none;
   }
   .analysis-content {

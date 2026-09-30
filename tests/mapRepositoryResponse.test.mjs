@@ -1,40 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { createTypeScriptLoader } from "./helpers/loadTypeScript.mjs";
 import test from "node:test";
-import ts from "typescript";
-import { buildProjectTree } from "../lib/projectTree.ts";
-import { parseImprovements } from "../lib/improvements.ts";
 import { severalImprovements } from "./fixtures/improvements.mjs";
 
-// Compile only the mapper so its Next.js alias can use the real tree builder
-// without introducing a separate test runner or a general-purpose TS loader.
-const require = createRequire(import.meta.url);
-const source = readFileSync(new URL("../lib/mapRepositoryResponse.ts", import.meta.url), "utf8");
-const { outputText } = ts.transpileModule(source, {
-  compilerOptions: {
-    module: ts.ModuleKind.CommonJS,
-    target: ts.ScriptTarget.ES2022,
-  },
-});
-const compiledModule = { exports: {} };
-new Function("require", "module", "exports", outputText)(
-  (specifier) => {
-    if (specifier === "@/lib/projectTree") return { buildProjectTree };
-    if (specifier === "./improvements") return { parseImprovements };
-    if (specifier === "zod") return require(specifier);
-    throw new Error(`Unexpected mapper dependency: ${specifier}`);
-  },
-  compiledModule,
-  compiledModule.exports,
-);
-const { mapRepositoryResponse } = compiledModule.exports;
+const { mapRepositoryResponse } = createTypeScriptLoader()("lib/mapRepositoryResponse.ts");
 
 test("maps validated Improvements and preserves the rest of the repository analysis", () => {
   const input = response(["src/search.ts", "src/report.ts", "package.json"]);
   input.overview.improvements = severalImprovements;
   const result = mapRepositoryResponse(input);
-  assert.equal(result.improvementsStatus, "complete");
+  assert.equal(result.sectionStatuses.improvements, "complete");
   assert.equal(result.improvementsSummary, severalImprovements.summary);
   assert.deepEqual(result.improvements, severalImprovements.improvements);
   assert.equal(result.repository.name, "example");
@@ -53,7 +28,7 @@ test("distinguishes an empty complete section, missing data, and a section-level
     const input = response();
     input.overview.improvements = improvements;
     const result = mapRepositoryResponse(input);
-    assert.equal(result.improvementsStatus, expected);
+    assert.equal(result.sectionStatuses.improvements, expected);
     assert.deepEqual(result.improvements, []);
     assert.equal(result.overview.summary, input.overview.summary);
   }
@@ -65,7 +40,7 @@ test("preserves server section errors and unavailable status after JSON serializ
     input.overview.improvements = null;
     input.overview.improvementsStatus = status;
     const result = mapRepositoryResponse(JSON.parse(JSON.stringify(input)));
-    assert.equal(result.improvementsStatus, status);
+    assert.equal(result.sectionStatuses.improvements, status);
     assert.equal(result.importantFiles.length, 1);
   }
 });

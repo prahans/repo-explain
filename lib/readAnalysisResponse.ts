@@ -1,3 +1,5 @@
+import { analysisUpdateSchema, type AnalysisUpdate } from "./analysisProtocol";
+
 export class AnalysisResponseError extends Error {
   status: number;
 
@@ -9,6 +11,8 @@ export class AnalysisResponseError extends Error {
 }
 
 type AnalysisEvent =
+  | AnalysisUpdate
+  | { type: "complete" }
   | { type: "progress"; stage: number }
   | { type: "result"; data: unknown }
   | { type: "error"; message: string; status: number };
@@ -25,6 +29,7 @@ function parseEvent(line: string): AnalysisEvent {
   }
 
   if (event && typeof event === "object" && !Array.isArray(event)) {
+    if ("type" in event && event.type === "complete") return { type: "complete" };
     if (
       "type" in event &&
       event.type === "progress" &&
@@ -54,6 +59,8 @@ function parseEvent(line: string): AnalysisEvent {
       return { type: "error", message: event.message, status: event.status };
     }
   }
+  const update = analysisUpdateSchema.safeParse(event);
+  if (update.success) return update.data;
   throw new Error(invalidResponse);
 }
 
@@ -85,6 +92,7 @@ export async function readAnalysisResponse(
   response: Response,
   onProgress: (stage: number) => void,
   signal?: AbortSignal,
+  onUpdate?: (event: AnalysisUpdate) => void,
 ): Promise<unknown> {
   signal?.throwIfAborted();
   const contentType = response.headers.get("content-type")?.split(";")[0].trim();
@@ -126,6 +134,7 @@ export async function readAnalysisResponse(
       signal?.throwIfAborted();
       try {
         buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+        if (buffer.length > 20_000_000) throw new Error(invalidResponse);
       } catch {
         throw new Error(invalidResponse);
       }
@@ -142,8 +151,12 @@ export async function readAnalysisResponse(
           onProgress(event.stage);
         } else if (event.type === "result") {
           return event.data;
-        } else {
+        } else if (event.type === "complete") {
+          return undefined;
+        } else if (event.type === "error") {
           throw new AnalysisResponseError(event.message, event.status);
+        } else {
+          onUpdate?.(event);
         }
       }
 

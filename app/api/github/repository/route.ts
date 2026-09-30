@@ -9,6 +9,9 @@ import {
   generateOverview,
   type RepositoryOverview,
 } from "@/lib/generateOverview";
+import { randomUUID } from "node:crypto";
+import { claimAnalysisRequest } from "@/lib/analysisRequestGuard";
+import { preparedSchema, repositorySchema, type AnalysisStreamEvent, type AnalysisUpdate, type PreparationStage } from "@/lib/analysisProtocol";
 
 type GitHubContentItem = {
   name: string;
@@ -29,17 +32,10 @@ type GitHubFileResponse = {
   content?: string;
 };
 
-type AnalysisStage = 0 | 1 | 2 | 3;
-
 type RepositoryRequestOptions = {
   signal?: AbortSignal;
-  onProgress?: (stage: AnalysisStage) => void;
+  onUpdate?: (event: AnalysisUpdate) => void;
 };
-
-type AnalysisStreamEvent =
-  | { type: "progress"; stage: AnalysisStage }
-  | { type: "result"; data: unknown }
-  | { type: "error"; message: string; status: number };
 
 const repositoryRequestError =
   "Could not retrieve repository data from GitHub. Please try again.";
@@ -79,9 +75,25 @@ export async function POST(request: Request) {
 
   const username = body.username.trim();
   const repo = body.repo.trim();
+  if (!/^[a-zA-Z0-9-]+$/.test(username) || !/^[a-zA-Z0-9_.-]+$/.test(repo) || repo === "." || repo === "..") {
+    return Response.json({ message: "Invalid repository owner or name" }, { status: 400 });
+  }
+  const requestId = request.headers.get("X-Analysis-Request-ID") ?? randomUUID();
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestId)) {
+    return Response.json({ message: "Invalid analysis request ID" }, { status: 400 });
+  }
+  let finish: (() => void) | null;
+  try {
+    finish = claimAnalysisRequest(requestId);
+  } catch {
+    return Response.json({ message: "The analysis queue is full. Please try again later." }, { status: 503 });
+  }
+  if (!finish) {
+    return Response.json({ message: "This analysis submission has already been received. Start a new analysis to try again." }, { status: 409 });
+  }
 
   if (request.headers.get("accept")?.includes("application/x-ndjson")) {
-    return streamRepositoryResponse(request, username, repo);
+    return streamRepositoryResponse(request, username, repo, finish);
   }
 
   try {
@@ -99,6 +111,8 @@ export async function POST(request: Request) {
       { message: repositoryRequestError },
       { status: 502 },
     );
+  } finally {
+    finish();
   }
 }
 
@@ -106,6 +120,7 @@ function streamRepositoryResponse(
   request: Request,
   username: string,
   repo: string,
+  finish: () => void,
 ) {
   const encoder = new TextEncoder();
   const cancellation = new AbortController();
@@ -116,6 +131,7 @@ function streamRepositoryResponse(
     start(controller) {
       const close = () => {
         signal.removeEventListener("abort", close);
+        finish();
 
         if (!closed) {
           closed = true;
@@ -140,14 +156,14 @@ function streamRepositoryResponse(
         try {
           const response = await getRepositoryResponse(username, repo, {
             signal,
-            onProgress: (stage) => send({ type: "progress", stage }),
+            onUpdate: send,
           });
 
           signal.throwIfAborted();
           const data = await response.json();
 
           if (response.ok) {
-            send({ type: "result", data });
+            send({ type: "complete" });
           } else {
             send({
               type: "error",
@@ -173,6 +189,7 @@ function streamRepositoryResponse(
       // The consumer already closed the stream; abort pending GitHub reads.
       closed = true;
       cancellation.abort(reason);
+      finish();
     },
   });
 
@@ -189,18 +206,18 @@ function streamRepositoryResponse(
 async function getRepositoryResponse(
   username: string,
   repo: string,
-  { signal, onProgress }: RepositoryRequestOptions = {},
+  { signal, onUpdate }: RepositoryRequestOptions = {},
 ) {
-  const reportProgress = (stage: AnalysisStage) => {
+  const reportProgress = (stage: PreparationStage, counts: { filesScanned?: number; filesSelected?: number } = {}) => {
     signal?.throwIfAborted();
-    onProgress?.(stage);
+    onUpdate?.({ type: "status", stage, ...counts });
   };
 
   // --------------------------------
   // 1. Repository information
   // --------------------------------
 
-  reportProgress(0);
+  reportProgress("loading_repository");
 
   const response = await fetch(
     `https://api.github.com/repos/${username}/${repo}`,
@@ -235,12 +252,13 @@ async function getRepositoryResponse(
     stars: data.stargazers_count,
     license: data.license?.name ?? null,
   };
+  onUpdate?.({ type: "repository", data: repositorySchema.parse(repository) });
 
   // --------------------------------
   // 2. Root files/folders
   // --------------------------------
 
-  reportProgress(1);
+  reportProgress("scanning_files");
 
   const contentsResponse = await fetch(
     `https://api.github.com/repos/${username}/${repo}/contents`,
@@ -303,11 +321,13 @@ async function getRepositoryResponse(
   // 4. Find important files
   // --------------------------------
 
-  reportProgress(2);
+  const filesScanned = tree.filter((item) => item.type === "blob").length;
+  reportProgress("selecting_files", { filesScanned });
 
   const importantPaths = new Set(getImportantFiles(tree));
 
   const importantFiles = tree.filter((item) => importantPaths.has(item.path));
+  reportProgress("preparing_context", { filesScanned, filesSelected: importantFiles.length });
 
   // --------------------------------
   // 5. README - OPTIONAL
@@ -489,12 +509,13 @@ async function getRepositoryResponse(
   // 9. Generate the AI overview
   // --------------------------------
 
-  reportProgress(3);
+  onUpdate?.({ type: "prepared", data: preparedSchema.parse({ tree, importantFiles, fileContents, technologies }) });
+  reportProgress("generating_analysis", { filesScanned, filesSelected: importantFiles.length });
 
   let overview: RepositoryOverview;
 
   try {
-    overview = await generateOverview(repositoryContext);
+    overview = await generateOverview(repositoryContext, { signal, onUpdate });
   } catch (error) {
     signal?.throwIfAborted();
     console.error("AI overview generation failed:", error);

@@ -165,9 +165,29 @@ test("sidebar navigation renders every existing section and Improvements without
     assert.ok(html.includes(`id="nav-${section}" aria-pressed="true"`));
     assert.ok(html.includes(`>${heading}</h2>`), heading);
   }
-  for (const [status, text] of [["waiting", "Waiting for analysis"], ["generating", "Generating improvements"], ["error", "Improvements unavailable"]]) {
-    const html = renderToStaticMarkup(AnalysisReport({ analysis: { ...analysis, improvementsStatus: status } }));
+  for (const [status, text] of [["waiting", "Waiting for analysis"], ["generating", "Reviewing the repository"], ["error", "Improvements could not be displayed"]]) {
+    const html = renderToStaticMarkup(AnalysisReport({ analysis: { ...analysis, sectionStatuses: { ...analysis.sectionStatuses, improvements: status } } }));
     assert.ok(html.includes(text));
   }
+  assert.equal(fetchSpy.mock.callCount(), 0);
+});
+
+test("sidebar selection survives progressive updates and static help is available before AI completes", (t) => {
+  const fetchSpy = t.mock.method(globalThis, "fetch", () => { throw new Error("Navigation must not restart generation"); });
+  const { createProgressiveAnalysis, applyAnalysisUpdate } = load("lib/progressiveAnalysis.ts");
+  let analysis = createProgressiveAnalysis({ name: "fixture", fullName: "owner/fixture", description: null, language: null, defaultBranch: "main", url: "https://github.com/owner/fixture" });
+  function navigate(section) {
+    const nav = find(AnalysisReport({ analysis }), (node) => node.type?.name === "AnalysisNavigation");
+    find(nav.type(nav.props), (node) => node.type === "button" && node.props.id === `nav-${section}`).props.onClick();
+    return renderToStaticMarkup(AnalysisReport({ analysis }));
+  }
+  assert.match(navigate("how-it-works"), /How repoExplain/);
+  assert.match(navigate("architecture"), /Waiting/);
+  analysis = applyAnalysisUpdate(analysis, { type: "section", section: "overview", data: { summary: "Available before completion.", targetAudience: "Developers.", limitations: [] } });
+  assert.match(renderToStaticMarkup(AnalysisReport({ analysis })), /id="nav-architecture" aria-pressed="true"/);
+  assert.match(navigate("overview"), /Available before completion/);
+  analysis = applyAnalysisUpdate(analysis, { type: "section-status", section: "architecture", status: "generating" });
+  assert.match(renderToStaticMarkup(AnalysisReport({ analysis })), /Available before completion/);
+  assert.match(navigate("architecture"), /Generating architecture/);
   assert.equal(fetchSpy.mock.callCount(), 0);
 });

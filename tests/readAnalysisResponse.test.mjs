@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AnalysisResponseError, readAnalysisResponse } from "../lib/readAnalysisResponse.ts";
+import { createTypeScriptLoader } from "./helpers/loadTypeScript.mjs";
+const { AnalysisResponseError, readAnalysisResponse } = createTypeScriptLoader()("lib/readAnalysisResponse.ts");
 
 const encoder = new TextEncoder();
 const noop = () => {};
@@ -154,4 +155,30 @@ test("an already-aborted request never starts reading or delivers progress", asy
   const response = streamed(['{"type":"progress","stage":0}\n']);
   await assert.rejects(readAnalysisResponse(response, () => assert.fail("Unexpected progress"), controller.signal), { name: "AbortError" });
   assert.equal(response.bodyUsed, false);
+});
+
+test("progressive events decode at byte boundaries and deliver Overview before stream completion", async () => {
+  const update = { type: "section", section: "overview", data: { summary: "Café 🚀", targetAudience: "Developers", limitations: [] } };
+  let producer;
+  const response = new Response(new ReadableStream({ start(controller) { producer = controller; } }), { headers: { "Content-Type": "application/x-ndjson" } });
+  const updates = [];
+  let finished = false;
+  let ready;
+  const delivered = new Promise((resolve) => { ready = resolve; });
+  const reading = readAnalysisResponse(response, noop, undefined, (event) => { updates.push(event); ready(); }).then((value) => { finished = true; return value; });
+  for (const byte of encoder.encode(JSON.stringify(update) + "\n")) producer.enqueue(new Uint8Array([byte]));
+  await delivered;
+  assert.equal(finished, false);
+  assert.deepEqual(updates, [update]);
+  producer.enqueue(encoder.encode('{"type":"complete"}\n'));
+  producer.close();
+  assert.equal(await reading, undefined);
+});
+
+test("invalid sections never reach the UI; an error after Overview does not retract it", async () => {
+  const update = { type: "section", section: "overview", data: { summary: "Ready", targetAudience: "Developers", limitations: [] } };
+  const updates = [];
+  await assert.rejects(readAnalysisResponse(streamed([JSON.stringify(update) + '\n{"type":"error","message":"Stream lost","status":502}\n']), noop, undefined, (event) => updates.push(event)), /Stream lost/);
+  assert.deepEqual(updates, [update]);
+  await assert.rejects(readAnalysisResponse(streamed(['{"type":"section","section":"overview","data":{"summary":"incomplete"}}\n']), noop, undefined, () => assert.fail("Unvalidated content")), /invalid analysis response/);
 });

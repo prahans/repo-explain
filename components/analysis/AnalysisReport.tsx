@@ -11,19 +11,14 @@ import { ImportantFiles } from "@/components/analysis/ImportantFiles";
 import { ArchitectureSection } from "@/components/analysis/ArchitectureSection";
 import { HowItWorks } from "@/components/analysis/HowItWorks";
 import { ImprovementsSection } from "@/components/analysis/ImprovementsSection";
+import { SectionPlaceholder } from "@/components/analysis/SectionPlaceholder";
 import type { AnalysisSection } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 
-function PendingSection({ title }: { title: string }) {
-  return (
-    <section>
-      <h2 className="section-heading">{title}</h2>
-      <p className="section-description">
-        This section has not been generated for this repository yet.
-      </p>
-    </section>
-  );
-}
+const sectionTitles = {
+  overview: "Overview", "tech-stack": "Tech Stack", "project-structure": "Project Structure",
+  "important-files": "Important Files", architecture: "Architecture", improvements: "Improvements",
+};
 
 export function AnalysisReport({
   analysis,
@@ -32,6 +27,8 @@ export function AnalysisReport({
 }) {
   const [activeSection, setActiveSection] =
     useState<AnalysisSection>("overview");
+  const status = activeSection === "how-it-works" ? "complete" : analysis.sectionStatuses[activeSection];
+  const showContent = status === "complete" || activeSection === "improvements";
 
   function navigateFromContent(section: AnalysisSection) {
     setActiveSection(section);
@@ -45,7 +42,7 @@ export function AnalysisReport({
         <AnalysisNavigation
           active={activeSection}
           onChange={setActiveSection}
-          improvementsStatus={analysis.improvementsStatus}
+          statuses={analysis.sectionStatuses}
         />
         <div
           className="analysis-content"
@@ -53,13 +50,16 @@ export function AnalysisReport({
           role="region"
           aria-labelledby={`nav-${activeSection}`}
         >
-          {activeSection === "overview" && (
+          {!showContent && activeSection !== "how-it-works" && (
+            <SectionPlaceholder title={sectionTitles[activeSection]} status={status} message={analysis.sectionErrors[activeSection]} />
+          )}
+          {showContent && activeSection === "overview" && (
             <OverviewSection
               analysis={analysis}
               onNavigate={navigateFromContent}
             />
           )}
-          {activeSection === "tech-stack" &&
+          {showContent && activeSection === "tech-stack" &&
             (analysis.technologies.length > 0 ? (
               <TechStackSection technologies={analysis.technologies} />
             ) : (
@@ -70,7 +70,7 @@ export function AnalysisReport({
                 </p>
               </section>
             ))}
-          {activeSection === "project-structure" && (
+          {showContent && activeSection === "project-structure" && (
             <section>
               <h2 className="section-heading">Find your way around</h2>
               <p className="section-description">
@@ -82,7 +82,7 @@ export function AnalysisReport({
               </div>
             </section>
           )}
-          {activeSection === "important-files" &&
+          {showContent && activeSection === "important-files" &&
             (analysis.importantFiles.length > 0 ? (
               <ImportantFiles files={analysis.importantFiles} />
             ) : (
@@ -93,23 +93,26 @@ export function AnalysisReport({
                 </p>
               </section>
             ))}
-          {activeSection === "architecture" &&
+          {showContent && activeSection === "architecture" &&
             (analysis.architecture.length > 0 ? (
               <ArchitectureSection nodes={analysis.architecture} />
             ) : (
-              <PendingSection title="Architecture" />
+              <section>
+                <h2 className="section-heading">Architecture</h2>
+                <p className="section-description">No architecture components were identified from the supplied files.</p>
+              </section>
             ))}
           {activeSection === "how-it-works" && (
             <HowItWorks
               repository={analysis.repository}
-              selectedFileCount={analysis.importantFiles.length}
+              selectedFileCount={analysis.selectedFileCount}
             />
           )}
           {activeSection === "improvements" && (
             <ImprovementsSection
               improvements={analysis.improvements}
               summary={analysis.improvementsSummary}
-              status={analysis.improvementsStatus}
+              status={analysis.sectionStatuses.improvements}
             />
           )}
         </div>

@@ -14,7 +14,9 @@ import {
   AnalysisResponseError,
   readAnalysisResponse,
 } from "@/lib/readAnalysisResponse";
-import { analysisStages } from "@/data/analysis-stages";
+import { analysisStages, preparationStageIndex } from "@/data/analysis-stages";
+import { applyAnalysisUpdate, createProgressiveAnalysis, finishAnalysis } from "@/lib/progressiveAnalysis";
+import type { PreparedRepository } from "@/lib/analysisProtocol";
 import type { ErrorContent, ErrorKind } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 import styles from "./RepoExplain.module.css";
@@ -77,6 +79,8 @@ export function RepoExplain() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loadingRepository, setLoadingRepository] = useState("");
   const [loadingStage, setLoadingStage] = useState(0);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [fileCounts, setFileCounts] = useState<{ filesScanned?: number; filesSelected?: number }>({});
   const activeRequest = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -99,6 +103,7 @@ export function RepoExplain() {
 
     setErrorMessage(null);
     setAnalysis(null);
+    setFileCounts({});
     const repoInfo = extractRepoInfo(url);
 
     if (!repoInfo) {
@@ -109,6 +114,7 @@ export function RepoExplain() {
 
     const request = new AbortController();
     activeRequest.current = request;
+    setIsAnalyzing(true);
     setLoadingRepository(`${repoInfo.username}/${repoInfo.repo}`);
     setLoadingStage(0);
     setView("loading");
@@ -118,12 +124,15 @@ export function RepoExplain() {
       request.abort(new DOMException("Analysis timed out", "TimeoutError"));
     }, ANALYSIS_TIMEOUT_MS);
 
+    let report: LiveRepositoryAnalysis | null = null;
+    let prepared: PreparedRepository | undefined;
     try {
       const response = await fetch("/api/github/repository", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/x-ndjson",
+          "X-Analysis-Request-ID": crypto.randomUUID(),
         },
         body: JSON.stringify(repoInfo),
         signal: request.signal,
@@ -136,34 +145,62 @@ export function RepoExplain() {
           }
         },
         request.signal,
+        (event) => {
+          if (activeRequest.current !== request || request.signal.aborted) return;
+          if (event.type === "status") {
+            setLoadingStage(preparationStageIndex[event.stage]);
+            setFileCounts((current) => ({
+              filesScanned: event.filesScanned ?? current.filesScanned,
+              filesSelected: event.filesSelected ?? current.filesSelected,
+            }));
+          } else if (event.type === "repository") {
+            report = createProgressiveAnalysis(event.data);
+            setAnalysis(report);
+            setView("result");
+          } else if (report) {
+            if (event.type === "prepared") prepared = event.data;
+            report = applyAnalysisUpdate(report, event, prepared);
+            setAnalysis(report);
+          }
+        },
       );
 
       // A cancelled or older response must never replace a newer analysis.
       if (activeRequest.current !== request) return;
       request.signal.throwIfAborted();
 
-      setAnalysis(mapRepositoryResponse(data));
+      if (data !== undefined) report = mapRepositoryResponse(data);
+      if (!report) throw new Error("The analysis ended before repository information arrived.");
+      report = finishAnalysis(report);
+      setAnalysis(report);
       setView("result");
+      if (Object.values(report.sectionStatuses).some((status) => status === "error")) {
+        setErrorMessage("Some sections could not be completed. Available sections are still readable.");
+      }
     } catch (error) {
       if (activeRequest.current !== request) return;
 
-      setErrorMessage(
-        request.signal.aborted
-          ? "This analysis took too long. Please try again."
-          : error instanceof Error
-            ? error.message
-            : "Could not load the repository. Please try again.",
-      );
-      setView(
-        error instanceof AnalysisResponseError && error.status === 404
-          ? "not-found"
-          : "failed",
-      );
+      const message = request.signal.aborted
+        ? "This analysis took too long. Please try again."
+        : error instanceof Error
+          ? error.message
+          : "Could not load the repository. Please try again.";
+      setErrorMessage(message);
+      if (report) {
+        setAnalysis(finishAnalysis(report, message));
+        setView("result");
+      } else {
+        setView(
+          error instanceof AnalysisResponseError && error.status === 404
+            ? "not-found"
+            : "failed",
+        );
+      }
     } finally {
       window.clearTimeout(timeoutId);
       if (activeRequest.current === request) {
         activeRequest.current = null;
-        focusWorkspace();
+        setIsAnalyzing(false);
       }
     }
   }
@@ -186,7 +223,12 @@ export function RepoExplain() {
     const request = activeRequest.current;
     activeRequest.current = null;
     request?.abort();
-    resetView();
+    setIsAnalyzing(false);
+    if (analysis) {
+      const message = "Analysis cancelled. Completed sections are still available.";
+      setAnalysis(finishAnalysis(analysis, message));
+      setErrorMessage(message);
+    } else resetView();
   }
 
   return (
@@ -194,7 +236,7 @@ export function RepoExplain() {
       <Hero>
         <RepositoryForm
           value={repositoryUrl}
-          isLoading={view === "loading"}
+          isLoading={isAnalyzing}
           onChange={setRepositoryUrl}
           onPreview={() => {
             void analyzeRepository(repositoryUrl);
@@ -202,7 +244,7 @@ export function RepoExplain() {
         />
         <ExampleRepositories
           onSelect={setRepositoryUrl}
-          disabled={view === "loading"}
+          disabled={isAnalyzing}
         />
       </Hero>
       <section
@@ -224,15 +266,17 @@ export function RepoExplain() {
               </p>
             </div>
           </div>
-          <span className={styles.status} data-state={view}>
+          <span className={styles.status} data-state={isAnalyzing ? "loading" : errorMessage ? "failed" : view}>
             <span className={styles.statusDot} />
-            {view === "loading"
+            {isAnalyzing
               ? "Analyzing repository"
-              : view === "result"
-                ? "Analysis ready"
-                : view === "empty"
-                  ? "Ready to explore"
-                  : "Needs attention"}
+              : view === "result" && errorMessage
+                ? "Analysis incomplete"
+                : view === "result"
+                  ? "Analysis ready"
+                  : view === "empty"
+                    ? "Ready to explore"
+                    : "Needs attention"}
           </span>
         </div>
         <div
@@ -241,10 +285,32 @@ export function RepoExplain() {
         >
           {view === "empty" && <EmptyState onViewExample={showExample} />}
           {view === "result" && analysis && (
-            <AnalysisReport
-              key={`${analysis.repository.owner}/${analysis.repository.name}`}
-              analysis={analysis}
-            />
+            <>
+              {isAnalyzing && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-7 py-4">
+                  <div role="status" className="min-w-0 text-sm text-muted">
+                    <p className="flex items-center gap-2"><span className="loading-spinner shrink-0" aria-hidden="true" />{analysisStages[loadingStage]}</p>
+                    {(fileCounts.filesScanned !== undefined || fileCounts.filesSelected !== undefined) && (
+                      <p className="mt-1 text-xs">
+                        {fileCounts.filesScanned !== undefined && `${fileCounts.filesScanned.toLocaleString("en-US")} files discovered`}
+                        {fileCounts.filesSelected !== undefined && ` · ${fileCounts.filesSelected.toLocaleString("en-US")} files selected`}
+                      </p>
+                    )}
+                  </div>
+                  <button type="button" className="text-link" onClick={cancelAnalysis}>Stop analysis</button>
+                </div>
+              )}
+              {errorMessage && !isAnalyzing && (
+                <div className="border-b border-line px-7 py-4" role="alert">
+                  <p className="text-sm text-muted">{errorMessage}</p>
+                  <button type="button" className="text-link mt-2" onClick={() => void analyzeRepository(repositoryUrl)}>Start a new analysis</button>
+                </div>
+              )}
+              <AnalysisReport
+                key={`${analysis.repository.owner}/${analysis.repository.name}`}
+                analysis={analysis}
+              />
+            </>
           )}
           {view === "loading" && (
             <AnalysisLoading
@@ -263,7 +329,7 @@ export function RepoExplain() {
         </div>
       </section>
       <p role="status" className="sr-only">
-        {view === "loading"
+        {isAnalyzing
           ? `${analysisStages[loadingStage]} for ${loadingRepository}. You can cancel while waiting.`
           : view === "result" && analysis
             ? `Showing analysis for ${analysis.repository.owner}/${analysis.repository.name}.`

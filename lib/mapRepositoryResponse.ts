@@ -1,175 +1,114 @@
 import * as z from "zod";
 import { buildProjectTree } from "@/lib/projectTree";
 import { parseImprovements } from "./improvements";
-import type { FileExplanation, Technology } from "@/types/analysis";
+import { fileMetadataSchema, fileSchema, repositorySchema, sectionNavigation, sectionOrder, sectionSchemas, type ModelSection, type PreparedRepository, type RepositoryMetadata } from "./analysisProtocol";
+import type { FileExplanation, GeneratedAnalysisSection, ImportantFile, SectionStatus, Technology } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
 
-// Validate the parts of the API response used by the report.
-// Retain file-reading metadata, but strip raw code and repositoryContext.
+// Keep legacy final JSON responses supported alongside progressive section events.
 const responseSchema = z.object({
-  repository: z.object({
-    name: z.string().min(1),
-    fullName: z.string().regex(/^[^/]+\/[^/]+$/),
-    description: z.string().nullable(),
-    language: z.string().nullable(),
-    defaultBranch: z.string().min(1),
-    url: z.url(),
-    stars: z.number().int().nonnegative().optional(),
-    license: z.string().nullable().optional(),
-  }),
+  repository: repositorySchema,
   technologies: z.array(z.string()),
-  tree: z.array(z.object({ path: z.string(), type: z.string() })),
-  importantFiles: z.array(z.object({ path: z.string(), type: z.string() })),
-  fileContents: z
-    .array(
-      z.object({
-        path: z.string(),
-        truncated: z.boolean().default(false),
-        error: z.string().nullable().default(null),
-      }),
-    )
-    .default([]),
-  overview: z.object({
-    summary: z.string().min(1),
-    targetAudience: z.string().min(1),
-    limitations: z.array(z.string()),
-    fileExplanations: z
-      .array(
-        z.object({
-          path: z.string(),
-          purpose: z.string(),
-          significance: z.string(),
-        }),
-      )
-      .default([]),
-    architecture: z
-      .array(
-        z.object({
-          name: z.string().min(1),
-          description: z.string().min(1),
-          layer: z.enum(["Browser", "Server", "External service", "Output"]),
-        }),
-      )
-      .max(6)
-      .default([]),
-    // Validate this section separately so other analysis remains usable.
+  tree: z.array(fileSchema),
+  importantFiles: z.array(fileSchema),
+  fileContents: z.array(fileMetadataSchema).default([]),
+  overview: sectionSchemas.overview.extend({
+    fileExplanations: z.array(z.object({ path: z.string(), purpose: z.string(), significance: z.string() })).default([]),
+    architecture: sectionSchemas.architecture.default([]),
     improvements: z.unknown().optional(),
     improvementsStatus: z.enum(["complete", "error", "not-available"]).optional(),
+    sectionStatuses: z.record(z.enum(sectionOrder), z.enum(["complete", "error", "not-available"])).optional(),
   }),
 });
 
-export function mapRepositoryResponse(value: unknown): LiveRepositoryAnalysis {
-  const parsed = responseSchema.safeParse(value);
+export function mapSectionStatuses(
+  statuses: Partial<Record<ModelSection, SectionStatus>> = {},
+  fallback: SectionStatus = "complete",
+): Record<GeneratedAnalysisSection, SectionStatus> {
+  return Object.fromEntries(sectionOrder.map((name) => [sectionNavigation[name], statuses[name] ?? fallback])) as Record<GeneratedAnalysisSection, SectionStatus>;
+}
 
-  if (!parsed.success) {
-    throw new Error(
-      "The server returned an incomplete analysis. Please try again.",
-    );
-  }
+export function repositoryFramework(technologies: string[]): string {
+  const frameworks = new Set(["Next.js", "React", "Vue", "Angular", "Svelte", "Express", "Django", "Flask", "FastAPI"]);
+  return technologies.find((name) => frameworks.has(name)) ?? "Not identified";
+}
 
-  const data = parsed.data;
-  const improvements = parseImprovements(
-    data.overview.improvements === null && data.overview.improvementsStatus === "not-available"
-      ? undefined
-      : data.overview.improvements,
-    new Set([...data.tree, ...data.importantFiles].map((file) => file.path)),
-  );
-  const improvementsStatus = data.overview.improvementsStatus === "error"
-    ? "error"
-    : improvements.status;
-  const fileDetails = new Map(
-    data.fileContents.map((file) => [file.path, file]),
-  );
-  const importantPaths = new Set(data.importantFiles.map((file) => file.path));
+export function mapRepositoryMetadata(repository: RepositoryMetadata, technologies: string[] = []): LiveRepositoryAnalysis["repository"] {
+  return {
+    name: repository.name,
+    owner: repository.fullName.split("/")[0],
+    description: repository.description ?? "No repository description provided.",
+    language: repository.language ?? "Not reported",
+    framework: repositoryFramework(technologies),
+    stars: repository.stars?.toLocaleString("en-US") ?? "Unknown",
+    branch: repository.defaultBranch,
+    url: repository.url,
+    license: repository.license === undefined ? "Unknown" : repository.license ?? "Not specified",
+  };
+}
+
+export function mapTechnologies(names: string[]): Technology[] {
+  return [...new Set(names)].map((name) => ({
+    name, category: "Detected technology",
+    description: "Detected from repository metadata, dependencies, or file paths.",
+    mark: name.slice(0, 2).toUpperCase(), color: "ink",
+  }));
+}
+
+export function mapImportantFiles(
+  files: PreparedRepository["importantFiles"],
+  fileContents: PreparedRepository["fileContents"],
+  candidates: FileExplanation[],
+): ImportantFile[] {
+  const details = new Map(fileContents.map((file) => [file.path, file]));
+  const paths = new Set(files.map((file) => file.path));
   const explanations = new Map<string, FileExplanation>();
-
-  for (const explanation of data.overview.fileExplanations) {
-    const purpose = explanation.purpose.trim();
-    const significance = explanation.significance.trim();
-    if (
-      importantPaths.has(explanation.path) &&
-      !fileDetails.get(explanation.path)?.error &&
-      !explanations.has(explanation.path) &&
-      purpose &&
-      significance
-    ) {
-      explanations.set(explanation.path, {
-        path: explanation.path,
-        purpose,
-        significance,
-      });
+  for (const item of candidates) {
+    const purpose = item.purpose.trim();
+    const significance = item.significance.trim();
+    if (paths.has(item.path) && !details.get(item.path)?.error && !explanations.has(item.path) && purpose && significance) {
+      explanations.set(item.path, { path: item.path, purpose, significance });
     }
   }
+  return files.map((file) => {
+    const explanation = explanations.get(file.path);
+    return {
+      path: file.path, type: file.type,
+      purpose: explanation?.purpose ?? "No file explanation available.",
+      significance: explanation?.significance ?? (details.get(file.path)?.error
+        ? "The file could not be read for this analysis."
+        : "The analysis did not return an explanation for this file."),
+      explanationStatus: explanation ? "available" : "unavailable",
+      truncated: details.get(file.path)?.truncated ?? false,
+    };
+  });
+}
 
-  const frameworks = new Set([
-    "Next.js",
-    "React",
-    "Vue",
-    "Angular",
-    "Svelte",
-    "Express",
-    "Django",
-    "Flask",
-    "FastAPI",
-  ]);
-
-  const technologies: Technology[] = [...new Set(data.technologies)].map(
-    (name) => ({
-      name,
-      category: "Detected technology",
-      description:
-        "Detected from repository metadata, dependencies, or file paths.",
-      mark: name.slice(0, 2).toUpperCase(),
-      color: "ink",
-    }),
+export function mapRepositoryResponse(value: unknown): LiveRepositoryAnalysis {
+  const parsed = responseSchema.safeParse(value);
+  if (!parsed.success) throw new Error("The server returned an incomplete analysis. Please try again.");
+  const data = parsed.data;
+  const improvements = parseImprovements(
+    data.overview.improvements === null && data.overview.improvementsStatus === "not-available" ? undefined : data.overview.improvements,
+    new Set([...data.tree, ...data.importantFiles].map((file) => file.path)),
   );
-
+  const improvementsStatus = data.overview.improvementsStatus === "error" ? "error" : improvements.status;
+  const importantFiles = mapImportantFiles(data.importantFiles, data.fileContents, data.overview.fileExplanations);
   return {
-    repository: {
-      name: data.repository.name,
-      owner: data.repository.fullName.split("/")[0],
-      description:
-        data.repository.description ?? "No repository description provided.",
-      language: data.repository.language ?? "Not reported",
-      framework:
-        data.technologies.find((name) => frameworks.has(name)) ??
-        "Not identified",
-      stars: data.repository.stars?.toLocaleString("en-US") ?? "Unknown",
-      branch: data.repository.defaultBranch,
-      url: data.repository.url,
-      license:
-        data.repository.license === undefined
-          ? "Unknown"
-          : (data.repository.license ?? "Not specified"),
-    },
+    repository: mapRepositoryMetadata(data.repository, data.technologies),
     overview: {
-      ...data.overview,
-      fileExplanations: [...explanations.values()],
+      summary: data.overview.summary, targetAudience: data.overview.targetAudience, limitations: data.overview.limitations,
+      fileExplanations: importantFiles.filter((file) => file.explanationStatus === "available").map(({ path, purpose, significance }) => ({ path, purpose, significance })),
     },
-    technologies,
+    technologies: mapTechnologies(data.technologies),
     structure: buildProjectTree(data.repository.name, data.tree),
-    importantFiles: data.importantFiles.map((file) => {
-      const explanation = explanations.get(file.path);
-      const details = fileDetails.get(file.path);
-
-      return {
-        path: file.path,
-        type: file.type,
-        purpose: explanation?.purpose ?? "No file explanation available.",
-        significance:
-          explanation?.significance ??
-          (details?.error
-            ? "The file could not be read for this analysis."
-            : "The analysis did not return an explanation for this file."),
-        explanationStatus: explanation ? "available" : "unavailable",
-        truncated: details?.truncated ?? false,
-      };
-    }),
+    importantFiles,
     architecture: data.overview.architecture,
-    // How It Works is a static explanation of the analysis pipeline.
     steps: [],
     improvements: improvementsStatus === "complete" ? improvements.data?.improvements ?? [] : [],
     improvementsSummary: improvementsStatus === "complete" ? improvements.data?.summary : undefined,
-    improvementsStatus,
+    sectionStatuses: { ...mapSectionStatuses(data.overview.sectionStatuses), improvements: improvementsStatus },
+    sectionErrors: {},
+    selectedFileCount: data.importantFiles.length,
   };
 }
