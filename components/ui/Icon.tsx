@@ -1,6 +1,12 @@
 import type { SVGProps } from "react";
 
 const paths = {
+  search: (
+    <>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m16 16 5 5" />
+    </>
+  ),
   code: (
     <>
       <path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 14" />

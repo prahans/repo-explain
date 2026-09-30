@@ -14,13 +14,14 @@ export default async function HistoryPage() {
 
   return (
     <>
-      <Navbar />
-      <main className="page-width py-10">
-        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+      <a className="skip-link" href="#main-content">Skip to content</a>
+      <Navbar signedIn activePage="history" />
+      <main id="main-content" className="page-width history-page">
+        <div className="history-heading">
           <div>
             <p className="eyebrow">RepoExplain</p>
 
-            <h1 className="mt-2 text-3xl font-semibold">Repository history</h1>
+            <h1 className="history-title">Repository history</h1>
 
             <p className="mt-2 text-sm text-muted">
               Reopen, favorite, or remove repositories you have previously
@@ -28,7 +29,7 @@ export default async function HistoryPage() {
             </p>
           </div>
 
-          <Link href="/" className="text-link">
+          <Link href="/" className="secondary-button">
             ← Back to RepoExplain
           </Link>
         </div>

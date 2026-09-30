@@ -1,13 +1,21 @@
+import Link from "next/link";
+import { AuthButton } from "@/components/AuthButton";
 import { Icon } from "@/components/ui/Icon";
 
-export function Navbar() {
+export function Navbar({
+  signedIn = false,
+  activePage,
+}: {
+  signedIn?: boolean;
+  activePage?: "history";
+}) {
   return (
     <header className="site-nav">
       <nav
-        className="page-width flex h-full items-center justify-between"
+        className="page-width nav-content"
         aria-label="Main navigation"
       >
-        <a href="#main-content" className="brand" aria-label="RepoExplain home">
+        <Link href="/" className="brand" aria-label="RepoExplain home">
           <span className="brand-mark">
             <Icon name="code" size={22} />
           </span>
@@ -15,21 +23,19 @@ export function Navbar() {
           <span className="ml-1 hidden rounded border border-line px-1.5 py-0.5 font-mono text-xs font-normal tracking-normal text-muted sm:inline">
             BETA
           </span>
-        </a>
-        <div className="flex items-center gap-5">
-          <a href="#about" className="nav-link">
-            About
-          </a>
-          <span className="hidden h-4 w-px bg-line sm:block" />
-          <button
-            className="icon-button"
-            type="button"
-            disabled
-            aria-label="GitHub project link coming soon"
-            title="GitHub project link coming soon"
-          >
-            <Icon name="github" size={18} />
-          </button>
+        </Link>
+        <div className="nav-actions">
+          {signedIn && (
+            <Link
+              href="/history"
+              className="nav-link"
+              aria-current={activePage === "history" ? "page" : undefined}
+            >
+              <Icon name="clock" size={16} />
+              History
+            </Link>
+          )}
+          <AuthButton />
         </div>
       </nav>
     </header>

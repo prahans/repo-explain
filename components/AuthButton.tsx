@@ -1,4 +1,6 @@
 import { auth, signIn, signOut } from "@/auth";
+import { Icon } from "@/components/ui/Icon";
+import { UserAvatar } from "@/components/UserAvatar";
 
 export async function AuthButton() {
   const session = await auth();
@@ -14,7 +16,8 @@ export async function AuthButton() {
           });
         }}
       >
-        <button type="submit" className="primary-button">
+        <button type="submit" className="secondary-button auth-sign-in">
+          <Icon name="github" size={17} />
           Sign in with GitHub
         </button>
       </form>
@@ -22,15 +25,18 @@ export async function AuthButton() {
   }
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="text-right">
-        <p className="text-sm font-medium">
-          {session.user.name ?? "GitHub user"}
-        </p>
-
-        {session.user.email && (
-          <p className="text-xs text-muted">{session.user.email}</p>
-        )}
+    <div className="auth-user">
+      <div className="auth-profile">
+        <UserAvatar
+          image={session.user.image}
+          name={session.user.name?.trim() || "GitHub user"}
+        />
+        <span
+          className="auth-name"
+          title={session.user.name?.trim() || "GitHub user"}
+        >
+          {session.user.name?.trim() || "GitHub user"}
+        </span>
       </div>
 
       <form
@@ -42,7 +48,7 @@ export async function AuthButton() {
           });
         }}
       >
-        <button type="submit" className="text-link">
+        <button type="submit" className="auth-sign-out">
           Sign out
         </button>
       </form>

@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { AuthButton } from "@/components/AuthButton";
 import { Navbar } from "@/components/Navbar";
 import { RepoExplain } from "@/components/RepoExplain";
 
@@ -22,17 +20,7 @@ export default async function Home({ searchParams }: HomePageProps) {
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
-      <Navbar />
-
-      <div className="page-width flex items-center justify-end gap-5 py-4">
-        {session?.user && (
-          <Link href="/history" className="text-link">
-            History
-          </Link>
-        )}
-
-        <AuthButton />
-      </div>
+      <Navbar signedIn={Boolean(session?.user)} />
 
       <main id="main-content">
         <RepoExplain initialRepositoryUrl={repositoryUrl ?? ""} />

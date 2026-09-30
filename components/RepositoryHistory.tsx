@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
+import styles from "./RepositoryHistory.module.css";
 
 type HistoryItem = {
   id: string;
@@ -209,27 +212,41 @@ export function RepositoryHistory() {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-line p-8 text-center">
-        <p className="text-sm text-muted">Loading repository history…</p>
+      <div role="status" aria-busy="true">
+        <p className="mb-4 text-sm text-muted">Loading repository history…</p>
+        <div className={styles.grid} aria-hidden="true">
+          {[0, 1, 2, 3].map((key) => (
+            <div key={key} className={`${styles.card} ${styles.skeleton}`}>
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
-  if (items.length === 0) {
+  if (items.length === 0 && !error) {
     return (
-      <div className="rounded-xl border border-line p-10 text-center">
+      <div className="workspace-card state-surface">
+        <div className="state-icon"><Icon name="repository" size={25} /></div>
         <h2 className="font-semibold">No repository history yet</h2>
 
         <p className="mt-2 text-sm text-muted">
           Repositories you analyze while signed in will appear here.
         </p>
+        <Link href="/" className="primary-button">
+          Back to RepoExplain <Icon name="arrow" size={15} />
+        </Link>
       </div>
     );
   }
 
   return (
-    <section>
-      <div className="mb-6">
+    <section aria-label="Repository history">
+      <div className={styles.toolbar}>
         <label htmlFor="history-search" className="sr-only">
           Search repository history
         </label>
@@ -240,49 +257,60 @@ export function RepositoryHistory() {
           placeholder="Search repositories…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="w-full rounded-xl border border-line bg-transparent px-4 py-3 text-sm outline-none"
+          className={styles.search}
         />
 
-        <p className="mt-2 text-xs text-muted">
+        <p role="status" className={styles.count}>
           {filteredItems.length}{" "}
           {filteredItems.length === 1 ? "repository" : "repositories"}
         </p>
       </div>
 
       {error && (
-        <div role="alert" className="mb-5 rounded-xl border border-line p-4">
+        <div role="alert" className={styles.error}>
+          <Icon name="alert" size={20} className="shrink-0" />
           <p className="text-sm text-muted">{error}</p>
         </div>
       )}
 
-      {filteredItems.length === 0 ? (
-        <div className="rounded-xl border border-line p-8 text-center">
+      {items.length === 0 && error ? (
+        <div className="workspace-card state-surface">
+          <h2>History is unavailable</h2>
+          <p>Please try visiting this page again later.</p>
+          <Link href="/" className="secondary-button">Back to RepoExplain</Link>
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="workspace-card state-surface">
+          <div className="state-icon"><Icon name="search" size={25} /></div>
           <p className="text-sm text-muted">
             No repositories match your search.
           </p>
+          <button className="secondary-button" type="button" onClick={() => setSearch("")}>Clear search</button>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className={styles.grid}>
           {filteredItems.map((item) => (
             <article
               key={item.id}
-              className="rounded-xl border border-line p-5"
+              className={styles.card}
             >
               <div className="flex items-start justify-between gap-4">
-                <button
-                  type="button"
-                  onClick={() => openRepository(item.repository.url)}
-                  className="min-w-0 flex-1 text-left"
-                >
-                  <p className="truncate font-semibold">
-                    {item.repository.fullName}
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <h2 className={styles.repositoryName}>
+                    <button
+                      type="button"
+                      onClick={() => openRepository(item.repository.url)}
+                      className="text-left hover:text-accent"
+                    >
+                      {item.repository.fullName}
+                    </button>
+                  </h2>
 
-                  <p className="mt-2 line-clamp-2 text-sm text-muted">
+                  <p className={styles.description}>
                     {item.repository.description ??
                       "No repository description provided."}
                   </p>
-                </button>
+                </div>
 
                 <button
                   type="button"
@@ -301,44 +329,44 @@ export function RepositoryHistory() {
                   onClick={() => {
                     void toggleFavorite(item);
                   }}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line text-lg disabled:opacity-50"
+                  className={styles.favorite}
                 >
-                  {favoriteUpdatingId === item.id
-                    ? "…"
-                    : item.isFavorite
-                      ? "★"
-                      : "☆"}
+                  {favoriteUpdatingId === item.id ? (
+                    <span className="loading-spinner" aria-hidden="true" />
+                  ) : (
+                    <Icon name="star" size={18} fill={item.isFavorite ? "currentColor" : "none"} />
+                  )}
                 </button>
               </div>
 
-              <div className="mt-5 flex flex-wrap gap-2 text-xs text-muted">
-                {item.repository.language && (
-                  <span className="rounded-full border border-line px-2 py-1">
-                    {item.repository.language}
-                  </span>
-                )}
+              <div className={styles.metadata}>
+                <span>{item.repository.language ?? "Language not listed"}</span>
 
-                <span className="rounded-full border border-line px-2 py-1">
+                <span className={styles.status} data-status={item.status}>
                   {item.status === "completed" ? "Ready" : "Partial"}
                 </span>
 
-                <span className="rounded-full border border-line px-2 py-1">
+                <span>
                   {item.visitCount} {item.visitCount === 1 ? "visit" : "visits"}
                 </span>
               </div>
 
-              <div className="mt-5 flex items-center justify-between gap-4 border-t border-line pt-4">
+              <div className={styles.cardFooter}>
                 <span className="text-xs text-muted">
-                  {formatRelativeDate(item.lastVisitedAt)}
+                  Last visited{" "}
+                  <time dateTime={item.lastVisitedAt} title={new Date(item.lastVisitedAt).toLocaleString()}>
+                    {formatRelativeDate(item.lastVisitedAt)}
+                  </time>
                 </span>
 
-                <div className="flex items-center gap-4">
+                <div className={styles.actions}>
                   <button
                     type="button"
                     onClick={() => openRepository(item.repository.url)}
-                    className="text-link text-sm"
+                    className="secondary-button"
+                    aria-label={`Open ${item.repository.fullName}`}
                   >
-                    Open
+                    Open <Icon name="arrow" size={14} />
                   </button>
 
                   <button
@@ -347,7 +375,8 @@ export function RepositoryHistory() {
                     onClick={() => {
                       void removeHistoryItem(item.id);
                     }}
-                    className="text-sm text-muted hover:text-foreground disabled:opacity-50"
+                    className={styles.remove}
+                    aria-label={`Remove ${item.repository.fullName} from history`}
                   >
                     {deletingId === item.id ? "Removing…" : "Remove"}
                   </button>
