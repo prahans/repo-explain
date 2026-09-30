@@ -9,8 +9,11 @@ import {
 import RepositoryAnalysis from "@/models/RepositoryAnalysis";
 
 import type { AnalysisUpdate, ModelSection } from "@/lib/analysisProtocol";
+import type { Types } from "mongoose";
 
-type CachedAnalysis = NormalizedRepositoryAnalysis;
+export type CachedAnalysis = NormalizedRepositoryAnalysis & {
+  _id: Types.ObjectId;
+};
 
 export async function findCachedRepositoryAnalysis(
   repoKey: string,

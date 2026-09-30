@@ -5,6 +5,9 @@ import {
   type RepositoryFileContent,
 } from "@/lib/getFileContent";
 
+import { auth } from "@/auth";
+import { recordRepositoryVisit } from "@/lib/recordRepositoryVisit";
+
 import {
   generateOverview,
   type RepositoryOverview,
@@ -51,6 +54,8 @@ type GitHubFileResponse = {
 type RepositoryRequestOptions = {
   signal?: AbortSignal;
   onUpdate?: (event: AnalysisUpdate) => void;
+
+  userId?: string | null;
 };
 
 const repositoryRequestError =
@@ -102,6 +107,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
   const requestId =
     request.headers.get("X-Analysis-Request-ID") ?? randomUUID();
   if (
@@ -133,13 +139,18 @@ export async function POST(request: Request) {
     );
   }
 
+  const session = await auth();
+
+  const userId = session?.user?.id ?? null;
+
   if (request.headers.get("accept")?.includes("application/x-ndjson")) {
-    return streamRepositoryResponse(request, username, repo, finish);
+    return streamRepositoryResponse(request, username, repo, userId, finish);
   }
 
   try {
     return await getRepositoryResponse(username, repo, {
       signal: request.signal,
+      userId,
     });
   } catch (error) {
     if (request.signal.aborted) {
@@ -158,6 +169,7 @@ function streamRepositoryResponse(
   request: Request,
   username: string,
   repo: string,
+  userId: string | null,
   finish: () => void,
 ) {
   const encoder = new TextEncoder();
@@ -195,6 +207,7 @@ function streamRepositoryResponse(
           const response = await getRepositoryResponse(username, repo, {
             signal,
             onUpdate: send,
+            userId,
           });
 
           signal.throwIfAborted();
@@ -244,7 +257,7 @@ function streamRepositoryResponse(
 async function getRepositoryResponse(
   username: string,
   repo: string,
-  { signal, onUpdate }: RepositoryRequestOptions = {},
+  { signal, onUpdate, userId }: RepositoryRequestOptions = {},
 ) {
   const reportProgress = (
     stage: PreparationStage,
@@ -377,6 +390,17 @@ async function getRepositoryResponse(
 
     if (cached) {
       console.log(`[RepoExplain] CACHE HIT ✅ ${repository.fullName}`);
+      if (userId) {
+        try {
+          await recordRepositoryVisit({
+            userId,
+            repoKey: cached.repository.repoKey,
+            repositoryAnalysisId: cached._id,
+          });
+        } catch (error) {
+          console.error("Failed to record cached repository visit:", error);
+        }
+      }
 
       replayCachedRepositoryAnalysis(cached, onUpdate);
 
@@ -638,9 +662,18 @@ async function getRepositoryResponse(
   });
 
   try {
-    await saveRepositoryAnalysis(persistenceDocument);
+    const savedAnalysis = await saveRepositoryAnalysis(persistenceDocument);
+
+    if (userId && savedAnalysis?._id) {
+      await recordRepositoryVisit({
+        userId,
+        repoKey: persistenceDocument.repository.repoKey,
+
+        repositoryAnalysisId: savedAnalysis._id.toString(),
+      });
+    }
   } catch (error) {
-    console.error("Failed to save repository analysis:", error);
+    console.error("Failed to persist repository analysis/history:", error);
   }
 
   // --------------------------------
