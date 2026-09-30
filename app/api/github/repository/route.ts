@@ -10,6 +10,7 @@ import {
   type RepositoryOverview,
 } from "@/lib/generateOverview";
 import { normalizeRepositoryAnalysis } from "@/lib/normalizeRepositoryAnalysis";
+import { saveRepositoryAnalysis } from "@/lib/saveRepositoryAnalysis";
 import { randomUUID } from "node:crypto";
 import { claimAnalysisRequest } from "@/lib/analysisRequestGuard";
 import {
@@ -19,6 +20,12 @@ import {
   type AnalysisUpdate,
   type PreparationStage,
 } from "@/lib/analysisProtocol";
+
+import {
+  cachedAnalysisToResponse,
+  findCachedRepositoryAnalysis,
+  replayCachedRepositoryAnalysis,
+} from "@/lib/repositoryAnalysisCache";
 
 type GitHubContentItem = {
   name: string;
@@ -32,7 +39,9 @@ type GitHubTreeItem = {
 };
 
 type GitHubTreeResponse = {
+  sha: string;
   tree: GitHubTreeItem[];
+  truncated?: boolean;
 };
 
 type GitHubFileResponse = {
@@ -349,6 +358,36 @@ async function getRepositoryResponse(
     type: item.type,
   }));
 
+  const repositoryRevision = treeData.sha;
+  const treeTruncated = treeData.truncated ?? false;
+
+  // --------------------------------
+  // Cache lookup
+  // --------------------------------
+
+  try {
+    console.log(
+      `[RepoExplain] Checking cache: ${repository.fullName} @ ${repositoryRevision}`,
+    );
+
+    const cached = await findCachedRepositoryAnalysis(
+      repository.fullName.toLowerCase(),
+      repositoryRevision,
+    );
+
+    if (cached) {
+      console.log(`[RepoExplain] CACHE HIT ✅ ${repository.fullName}`);
+
+      replayCachedRepositoryAnalysis(cached, onUpdate);
+
+      return Response.json(cachedAnalysisToResponse(cached));
+    }
+
+    console.log(`[RepoExplain] CACHE MISS ❌ ${repository.fullName}`);
+  } catch (error) {
+    console.error("Repository analysis cache lookup failed:", error);
+  }
+
   // --------------------------------
   // 4. Find important files
   // --------------------------------
@@ -552,6 +591,7 @@ async function getRepositoryResponse(
       technologies,
     }),
   });
+
   reportProgress("generating_analysis", {
     filesScanned,
     filesSelected: importantFiles.length,
@@ -560,19 +600,51 @@ async function getRepositoryResponse(
   let overview: RepositoryOverview;
 
   try {
-    overview = await generateOverview(repositoryContext, { signal, onUpdate });
+    console.log(`[RepoExplain] AI GENERATION 🤖 ${repository.fullName}`);
+    overview = await generateOverview(repositoryContext, {
+      signal,
+      onUpdate,
+    });
   } catch (error) {
     signal?.throwIfAborted();
+
     console.error("AI overview generation failed:", error);
 
     return Response.json(
-      { message: "Repository data was fetched, but AI analysis failed." },
-      { status: 502 },
+      {
+        message: "Repository data was fetched, but AI analysis failed.",
+      },
+      {
+        status: 502,
+      },
     );
   }
 
   // --------------------------------
-  // 10. Return everything
+  // 10. Persist analysis
+  // --------------------------------
+
+  const persistenceDocument = normalizeRepositoryAnalysis({
+    repository,
+    tree,
+    importantFiles,
+    technologies,
+    fileContents,
+    overview,
+
+    revision: repositoryRevision,
+
+    treeTruncated,
+  });
+
+  try {
+    await saveRepositoryAnalysis(persistenceDocument);
+  } catch (error) {
+    console.error("Failed to save repository analysis:", error);
+  }
+
+  // --------------------------------
+  // 11. Return everything
   // --------------------------------
 
   signal?.throwIfAborted();

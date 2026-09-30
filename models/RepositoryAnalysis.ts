@@ -199,6 +199,10 @@ const importantFileSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    error: {
+      type: String,
+      default: null,
+    },
   },
   {
     _id: false,
@@ -419,6 +423,23 @@ const metadataSchema = new Schema(
   },
 );
 
+const sourceSchema = new Schema(
+  {
+    revision: {
+      type: String,
+      required: true,
+    },
+
+    treeTruncated: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  {
+    _id: false,
+  },
+);
+
 /* -------------------------------------------------------------------------- */
 /* Repository analysis document                                               */
 /* -------------------------------------------------------------------------- */
@@ -427,6 +448,10 @@ const repositoryAnalysisSchema = new Schema(
   {
     repository: {
       type: repositorySchema,
+      required: true,
+    },
+    source: {
+      type: sourceSchema,
       required: true,
     },
 
@@ -459,6 +484,7 @@ const repositoryAnalysisSchema = new Schema(
   },
   {
     timestamps: true,
+    collection: "repositoryAnalyses",
   },
 );
 
@@ -468,10 +494,16 @@ const repositoryAnalysisSchema = new Schema(
  * Later we'll add the Git commit/tree SHA so that RepoExplain can tell whether
  * the repository changed since the stored analysis was generated.
  */
-repositoryAnalysisSchema.index({
-  "repository.repoKey": 1,
-  "metadata.analysisVersion": 1,
-});
+repositoryAnalysisSchema.index(
+  {
+    "repository.repoKey": 1,
+    "source.revision": 1,
+    "metadata.analysisVersion": 1,
+  },
+  {
+    unique: true,
+  },
+);
 
 repositoryAnalysisSchema.index({
   analyzedAt: -1,

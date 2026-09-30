@@ -5,7 +5,7 @@ import type {
 
 import type { RepositoryOverview } from "./generateOverview";
 
-const ANALYSIS_VERSION = 1;
+export const CURRENT_ANALYSIS_VERSION = 1;
 
 type FileContentMetadata = {
   path: string;
@@ -20,6 +20,9 @@ type NormalizeRepositoryAnalysisInput = {
   technologies: string[];
   fileContents: FileContentMetadata[];
   overview: RepositoryOverview;
+
+  revision: string;
+  treeTruncated: boolean;
 };
 
 /**
@@ -39,6 +42,8 @@ export function normalizeRepositoryAnalysis({
   technologies,
   fileContents,
   overview,
+  revision,
+  treeTruncated,
 }: NormalizeRepositoryAnalysisInput) {
   const fileMetadataByPath = new Map(
     fileContents.map((file) => [file.path, file]),
@@ -93,6 +98,11 @@ export function normalizeRepositoryAnalysis({
       license: repository.license ?? null,
     },
 
+    source: {
+      revision,
+      treeTruncated,
+    },
+
     analysis: {
       overview: {
         summary: overview.summary,
@@ -123,14 +133,16 @@ export function normalizeRepositoryAnalysis({
         })),
 
         totalEntries: tree.length,
+
+        truncated: treeTruncated,
       },
 
       /**
        * Store explanations, but NOT the actual source-code content.
        */
+
       importantFiles: importantFiles.map((file) => {
         const explanation = explanationByPath.get(file.path);
-
         const metadata = fileMetadataByPath.get(file.path);
 
         return {
@@ -147,6 +159,8 @@ export function normalizeRepositoryAnalysis({
             : ("unavailable" as const),
 
           truncated: metadata?.truncated ?? false,
+
+          error: metadata?.error ?? null,
         };
       }),
 
@@ -188,7 +202,7 @@ export function normalizeRepositoryAnalysis({
     status,
 
     metadata: {
-      analysisVersion: ANALYSIS_VERSION,
+      analysisVersion: CURRENT_ANALYSIS_VERSION,
 
       filesScanned: tree.filter((entry) => entry.type === "blob").length,
 
