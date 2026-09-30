@@ -10,12 +10,17 @@ import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
 import { Icon } from "@/components/ui/Icon";
 import { mapRepositoryResponse } from "@/lib/mapRepositoryResponse";
+import { RepositoryHistory } from "@/components/RepositoryHistory";
 import {
   AnalysisResponseError,
   readAnalysisResponse,
 } from "@/lib/readAnalysisResponse";
 import { analysisStages, preparationStageIndex } from "@/data/analysis-stages";
-import { applyAnalysisUpdate, createProgressiveAnalysis, finishAnalysis } from "@/lib/progressiveAnalysis";
+import {
+  applyAnalysisUpdate,
+  createProgressiveAnalysis,
+  finishAnalysis,
+} from "@/lib/progressiveAnalysis";
 import type { PreparedRepository } from "@/lib/analysisProtocol";
 import type { ErrorContent, ErrorKind } from "@/types/analysis";
 import type { LiveRepositoryAnalysis } from "@/types/live-analysis";
@@ -80,7 +85,11 @@ export function RepoExplain() {
   const [loadingRepository, setLoadingRepository] = useState("");
   const [loadingStage, setLoadingStage] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [fileCounts, setFileCounts] = useState<{ filesScanned?: number; filesSelected?: number }>({});
+  const [fileCounts, setFileCounts] = useState<{
+    filesScanned?: number;
+    filesSelected?: number;
+  }>({});
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const activeRequest = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -146,7 +155,8 @@ export function RepoExplain() {
         },
         request.signal,
         (event) => {
-          if (activeRequest.current !== request || request.signal.aborted) return;
+          if (activeRequest.current !== request || request.signal.aborted)
+            return;
           if (event.type === "status") {
             setLoadingStage(preparationStageIndex[event.stage]);
             setFileCounts((current) => ({
@@ -170,12 +180,27 @@ export function RepoExplain() {
       request.signal.throwIfAborted();
 
       if (data !== undefined) report = mapRepositoryResponse(data);
-      if (!report) throw new Error("The analysis ended before repository information arrived.");
+      if (!report)
+        throw new Error(
+          "The analysis ended before repository information arrived.",
+        );
       report = finishAnalysis(report);
+
       setAnalysis(report);
+
       setView("result");
-      if (Object.values(report.sectionStatuses).some((status) => status === "error")) {
-        setErrorMessage("Some sections could not be completed. Available sections are still readable.");
+
+      // The backend has now recorded this visit.
+      // Refresh the recent repositories UI.
+      setHistoryRefreshKey((value) => value + 1);
+      if (
+        Object.values(report.sectionStatuses).some(
+          (status) => status === "error",
+        )
+      ) {
+        setErrorMessage(
+          "Some sections could not be completed. Available sections are still readable.",
+        );
       }
     } catch (error) {
       if (activeRequest.current !== request) return;
@@ -225,10 +250,21 @@ export function RepoExplain() {
     request?.abort();
     setIsAnalyzing(false);
     if (analysis) {
-      const message = "Analysis cancelled. Completed sections are still available.";
+      const message =
+        "Analysis cancelled. Completed sections are still available.";
       setAnalysis(finishAnalysis(analysis, message));
       setErrorMessage(message);
     } else resetView();
+  }
+
+  function openHistoryRepository(url: string) {
+    if (activeRequest.current) {
+      return;
+    }
+
+    setRepositoryUrl(url);
+
+    void analyzeRepository(url);
   }
 
   return (
@@ -247,6 +283,11 @@ export function RepoExplain() {
           disabled={isAnalyzing}
         />
       </Hero>
+      <RepositoryHistory
+        refreshKey={historyRefreshKey}
+        disabled={isAnalyzing}
+        onSelect={openHistoryRepository}
+      />
       <section
         id="workspace"
         className="workspace page-width"
@@ -266,7 +307,12 @@ export function RepoExplain() {
               </p>
             </div>
           </div>
-          <span className={styles.status} data-state={isAnalyzing ? "loading" : errorMessage ? "failed" : view}>
+          <span
+            className={styles.status}
+            data-state={
+              isAnalyzing ? "loading" : errorMessage ? "failed" : view
+            }
+          >
             <span className={styles.statusDot} />
             {isAnalyzing
               ? "Analyzing repository"
@@ -289,21 +335,42 @@ export function RepoExplain() {
               {isAnalyzing && (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-7 py-4">
                   <div role="status" className="min-w-0 text-sm text-muted">
-                    <p className="flex items-center gap-2"><span className="loading-spinner shrink-0" aria-hidden="true" />{analysisStages[loadingStage]}</p>
-                    {(fileCounts.filesScanned !== undefined || fileCounts.filesSelected !== undefined) && (
+                    <p className="flex items-center gap-2">
+                      <span
+                        className="loading-spinner shrink-0"
+                        aria-hidden="true"
+                      />
+                      {analysisStages[loadingStage]}
+                    </p>
+                    {(fileCounts.filesScanned !== undefined ||
+                      fileCounts.filesSelected !== undefined) && (
                       <p className="mt-1 text-xs">
-                        {fileCounts.filesScanned !== undefined && `${fileCounts.filesScanned.toLocaleString("en-US")} files discovered`}
-                        {fileCounts.filesSelected !== undefined && ` · ${fileCounts.filesSelected.toLocaleString("en-US")} files selected`}
+                        {fileCounts.filesScanned !== undefined &&
+                          `${fileCounts.filesScanned.toLocaleString("en-US")} files discovered`}
+                        {fileCounts.filesSelected !== undefined &&
+                          ` · ${fileCounts.filesSelected.toLocaleString("en-US")} files selected`}
                       </p>
                     )}
                   </div>
-                  <button type="button" className="text-link" onClick={cancelAnalysis}>Stop analysis</button>
+                  <button
+                    type="button"
+                    className="text-link"
+                    onClick={cancelAnalysis}
+                  >
+                    Stop analysis
+                  </button>
                 </div>
               )}
               {errorMessage && !isAnalyzing && (
                 <div className="border-b border-line px-7 py-4" role="alert">
                   <p className="text-sm text-muted">{errorMessage}</p>
-                  <button type="button" className="text-link mt-2" onClick={() => void analyzeRepository(repositoryUrl)}>Start a new analysis</button>
+                  <button
+                    type="button"
+                    className="text-link mt-2"
+                    onClick={() => void analyzeRepository(repositoryUrl)}
+                  >
+                    Start a new analysis
+                  </button>
                 </div>
               )}
               <AnalysisReport
