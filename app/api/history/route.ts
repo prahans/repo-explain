@@ -28,7 +28,7 @@ export async function GET() {
         isFavorite: -1,
         lastVisitedAt: -1,
       })
-      .limit(20)
+      .limit(100)
       .lean();
 
     if (history.length === 0) {

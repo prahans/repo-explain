@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type HistoryItem = {
   id: string;
@@ -32,28 +33,18 @@ type HistoryResponse = {
   items: HistoryItem[];
 };
 
-type RepositoryHistoryProps = {
-  onSelect: (url: string) => void;
+export function RepositoryHistory() {
+  const router = useRouter();
 
-  /**
-   * Change this value whenever a repository analysis completes
-   * so the component fetches fresh history.
-   */
-  refreshKey?: number;
-
-  disabled?: boolean;
-};
-
-export function RepositoryHistory({
-  onSelect,
-  refreshKey = 0,
-  disabled = false,
-}: RepositoryHistoryProps) {
   const [items, setItems] = useState<HistoryItem[]>([]);
+  const [search, setSearch] = useState("");
+
   const [isLoading, setIsLoading] = useState(true);
-  const [isSignedIn, setIsSignedIn] = useState(true);
+
   const [error, setError] = useState<string | null>(null);
+
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
     null,
   );
@@ -73,8 +64,7 @@ export function RepositoryHistory({
         });
 
         if (response.status === 401) {
-          setIsSignedIn(false);
-          setItems([]);
+          router.replace("/");
           return;
         }
 
@@ -84,14 +74,13 @@ export function RepositoryHistory({
 
         const data = (await response.json()) as HistoryResponse;
 
-        setIsSignedIn(true);
         setItems(data.items);
       } catch (error) {
         if (controller.signal.aborted) return;
 
         console.error("Failed to load repository history:", error);
 
-        setError("Could not load recent repositories.");
+        setError("Could not load repository history.");
       } finally {
         if (!controller.signal.aborted) {
           setIsLoading(false);
@@ -104,31 +93,81 @@ export function RepositoryHistory({
     return () => {
       controller.abort();
     };
-  }, [refreshKey]);
+  }, [router]);
 
-  // Don't show history to anonymous users.
-  if (!isSignedIn) {
-    return null;
-  }
+  const filteredItems = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-  if (isLoading) {
-    return (
-      <section className="page-width py-5">
-        <p className="text-sm text-muted">Loading recent repositories…</p>
-      </section>
-    );
-  }
+    if (!query) {
+      return items;
+    }
 
-  if (error) {
-    return (
-      <section className="page-width py-5">
-        <p className="text-sm text-muted">{error}</p>
-      </section>
-    );
-  }
+    return items.filter((item) => {
+      return (
+        item.repository.fullName.toLowerCase().includes(query) ||
+        item.repository.description?.toLowerCase().includes(query) ||
+        item.repository.language?.toLowerCase().includes(query)
+      );
+    });
+  }, [items, search]);
 
-  if (items.length === 0) {
-    return null;
+  async function toggleFavorite(item: HistoryItem) {
+    if (favoriteUpdatingId) return;
+
+    const nextValue = !item.isFavorite;
+
+    setFavoriteUpdatingId(item.id);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/history/${item.id}`, {
+        method: "PATCH",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          isFavorite: nextValue,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+
+        throw new Error(data?.message ?? "Could not update favorite.");
+      }
+
+      setItems((current) =>
+        current
+          .map((historyItem) =>
+            historyItem.id === item.id
+              ? {
+                  ...historyItem,
+                  isFavorite: nextValue,
+                }
+              : historyItem,
+          )
+          .sort((a, b) => {
+            if (a.isFavorite !== b.isFavorite) {
+              return Number(b.isFavorite) - Number(a.isFavorite);
+            }
+
+            return (
+              new Date(b.lastVisitedAt).getTime() -
+              new Date(a.lastVisitedAt).getTime()
+            );
+          }),
+      );
+    } catch (error) {
+      console.error("Failed to update favorite:", error);
+
+      setError(
+        error instanceof Error ? error.message : "Could not update favorite.",
+      );
+    } finally {
+      setFavoriteUpdatingId(null);
+    }
   }
 
   async function removeHistoryItem(historyId: string) {
@@ -141,12 +180,6 @@ export function RepositoryHistory({
       const response = await fetch(`/api/history/${historyId}`, {
         method: "DELETE",
       });
-
-      if (response.status === 401) {
-        setIsSignedIn(false);
-        setItems([]);
-        return;
-      }
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
@@ -170,101 +203,87 @@ export function RepositoryHistory({
     }
   }
 
-  async function toggleFavorite(item: HistoryItem) {
-    if (favoriteUpdatingId) return;
+  function openRepository(repositoryUrl: string) {
+    router.push(`/?repo=${encodeURIComponent(repositoryUrl)}`);
+  }
 
-    setFavoriteUpdatingId(item.id);
-    setError(null);
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-line p-8 text-center">
+        <p className="text-sm text-muted">Loading repository history…</p>
+      </div>
+    );
+  }
 
-    const nextValue = !item.isFavorite;
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-line p-10 text-center">
+        <h2 className="font-semibold">No repository history yet</h2>
 
-    try {
-      const response = await fetch(`/api/history/${item.id}`, {
-        method: "PATCH",
-
-        headers: {
-          "Content-Type": "application/json",
-        },
-
-        body: JSON.stringify({
-          isFavorite: nextValue,
-        }),
-      });
-
-      if (response.status === 401) {
-        setIsSignedIn(false);
-        setItems([]);
-        return;
-      }
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-
-        throw new Error(data?.message ?? "Could not update favorite.");
-      }
-
-      setItems((current) =>
-        current.map((historyItem) =>
-          historyItem.id === item.id
-            ? {
-                ...historyItem,
-                isFavorite: nextValue,
-              }
-            : historyItem,
-        ),
-      );
-    } catch (error) {
-      console.error("Failed to update favorite:", error);
-
-      setError(
-        error instanceof Error ? error.message : "Could not update favorite.",
-      );
-    } finally {
-      setFavoriteUpdatingId(null);
-    }
+        <p className="mt-2 text-sm text-muted">
+          Repositories you analyze while signed in will appear here.
+        </p>
+      </div>
+    );
   }
 
   return (
-    <section
-      className="page-width py-5"
-      aria-labelledby="recent-repositories-heading"
-    >
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <div>
-          <h2
-            id="recent-repositories-heading"
-            className="text-sm font-semibold"
-          >
-            Recent repositories
-          </h2>
+    <section>
+      <div className="mb-6">
+        <label htmlFor="history-search" className="sr-only">
+          Search repository history
+        </label>
 
-          <p className="mt-1 text-xs text-muted">
-            Reopen repositories you previously analyzed.
-          </p>
-        </div>
+        <input
+          id="history-search"
+          type="search"
+          placeholder="Search repositories…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="w-full rounded-xl border border-line bg-transparent px-4 py-3 text-sm outline-none"
+        />
+
+        <p className="mt-2 text-xs text-muted">
+          {filteredItems.length}{" "}
+          {filteredItems.length === 1 ? "repository" : "repositories"}
+        </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {items.map((item) => (
-          <div key={item.id} className="rounded-xl border border-line p-4">
-            <div className="flex items-start justify-between gap-3">
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() => onSelect(item.repository.url)}
-                className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <p className="truncate text-sm font-semibold">
-                  {item.repository.fullName}
-                </p>
+      {error && (
+        <div role="alert" className="mb-5 rounded-xl border border-line p-4">
+          <p className="text-sm text-muted">{error}</p>
+        </div>
+      )}
 
-                <p className="mt-1 line-clamp-2 text-xs text-muted">
-                  {item.repository.description ??
-                    "No repository description provided."}
-                </p>
-              </button>
+      {filteredItems.length === 0 ? (
+        <div className="rounded-xl border border-line p-8 text-center">
+          <p className="text-sm text-muted">
+            No repositories match your search.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {filteredItems.map((item) => (
+            <article
+              key={item.id}
+              className="rounded-xl border border-line p-5"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => openRepository(item.repository.url)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <p className="truncate font-semibold">
+                    {item.repository.fullName}
+                  </p>
 
-              <div className="flex shrink-0 items-center gap-2">
+                  <p className="mt-2 line-clamp-2 text-sm text-muted">
+                    {item.repository.description ??
+                      "No repository description provided."}
+                  </p>
+                </button>
+
                 <button
                   type="button"
                   aria-pressed={item.isFavorite}
@@ -278,11 +297,11 @@ export function RepositoryHistory({
                       ? "Remove from favorites"
                       : "Add to favorites"
                   }
-                  disabled={disabled || favoriteUpdatingId === item.id}
+                  disabled={favoriteUpdatingId === item.id}
                   onClick={() => {
                     void toggleFavorite(item);
                   }}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-line text-base transition hover:bg-black/[0.03] disabled:opacity-50"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line text-lg disabled:opacity-50"
                 >
                   {favoriteUpdatingId === item.id
                     ? "…"
@@ -290,40 +309,54 @@ export function RepositoryHistory({
                       ? "★"
                       : "☆"}
                 </button>
-
-                <span className="rounded-full border border-line px-2 py-1 text-[11px] text-muted">
-                  {item.status === "completed" ? "Ready" : "Partial"}
-                </span>
               </div>
-            </div>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+              <div className="mt-5 flex flex-wrap gap-2 text-xs text-muted">
                 {item.repository.language && (
-                  <span>{item.repository.language}</span>
+                  <span className="rounded-full border border-line px-2 py-1">
+                    {item.repository.language}
+                  </span>
                 )}
 
-                <span>
-                  {item.visitCount} {item.visitCount === 1 ? "visit" : "visits"}
+                <span className="rounded-full border border-line px-2 py-1">
+                  {item.status === "completed" ? "Ready" : "Partial"}
                 </span>
 
-                <span>{formatRelativeDate(item.lastVisitedAt)}</span>
+                <span className="rounded-full border border-line px-2 py-1">
+                  {item.visitCount} {item.visitCount === 1 ? "visit" : "visits"}
+                </span>
               </div>
 
-              <button
-                type="button"
-                disabled={disabled || deletingId === item.id}
-                onClick={() => {
-                  void removeHistoryItem(item.id);
-                }}
-                className="text-xs text-muted hover:text-foreground disabled:opacity-50"
-              >
-                {deletingId === item.id ? "Removing…" : "Remove"}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+              <div className="mt-5 flex items-center justify-between gap-4 border-t border-line pt-4">
+                <span className="text-xs text-muted">
+                  {formatRelativeDate(item.lastVisitedAt)}
+                </span>
+
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => openRepository(item.repository.url)}
+                    className="text-link text-sm"
+                  >
+                    Open
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={deletingId === item.id}
+                    onClick={() => {
+                      void removeHistoryItem(item.id);
+                    }}
+                    className="text-sm text-muted hover:text-foreground disabled:opacity-50"
+                  >
+                    {deletingId === item.id ? "Removing…" : "Remove"}
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

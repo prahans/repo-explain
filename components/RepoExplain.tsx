@@ -10,7 +10,6 @@ import { AnalysisLoading } from "@/components/analysis/AnalysisLoading";
 import { ErrorState } from "@/components/analysis/ErrorState";
 import { Icon } from "@/components/ui/Icon";
 import { mapRepositoryResponse } from "@/lib/mapRepositoryResponse";
-import { RepositoryHistory } from "@/components/RepositoryHistory";
 import {
   AnalysisResponseError,
   readAnalysisResponse,
@@ -77,8 +76,12 @@ function extractRepoInfo(value: string) {
   }
 }
 
-export function RepoExplain() {
-  const [repositoryUrl, setRepositoryUrl] = useState("");
+type RepoExplainProps = {
+  initialRepositoryUrl?: string;
+};
+
+export function RepoExplain({ initialRepositoryUrl = "" }: RepoExplainProps) {
+  const [repositoryUrl, setRepositoryUrl] = useState(initialRepositoryUrl);
   const [view, setView] = useState<ViewState>("empty");
   const [analysis, setAnalysis] = useState<LiveRepositoryAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -89,8 +92,8 @@ export function RepoExplain() {
     filesScanned?: number;
     filesSelected?: number;
   }>({});
-  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const activeRequest = useRef<AbortController | null>(null);
+  const initialRepositoryHandled = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -192,7 +195,6 @@ export function RepoExplain() {
 
       // The backend has now recorded this visit.
       // Refresh the recent repositories UI.
-      setHistoryRefreshKey((value) => value + 1);
       if (
         Object.values(report.sectionStatuses).some(
           (status) => status === "error",
@@ -230,6 +232,48 @@ export function RepoExplain() {
     }
   }
 
+  useEffect(() => {
+    if (!initialRepositoryUrl || initialRepositoryHandled.current) {
+      return;
+    }
+
+    /**
+     * Delay the automatic request by one tick.
+     *
+     * In React development mode effects may be mounted,
+     * cleaned up, and mounted again to detect unsafe effects.
+     * Starting the request immediately can therefore cause
+     * our existing cleanup effect to abort it.
+     */
+    const timeoutId = window.setTimeout(() => {
+      if (initialRepositoryHandled.current) {
+        return;
+      }
+
+      initialRepositoryHandled.current = true;
+
+      // ?repo= is only needed to open the repository once.
+      // Remove it so refreshing/restarting does not reopen it.
+      const currentUrl = new URL(window.location.href);
+
+      currentUrl.searchParams.delete("repo");
+
+      window.history.replaceState(
+        {},
+        "",
+        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+      );
+
+      void analyzeRepository(initialRepositoryUrl);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRepositoryUrl]);
+
   function showExample() {
     if (activeRequest.current) return;
     const exampleUrl = "https://github.com/prahans/wanderLust";
@@ -257,16 +301,6 @@ export function RepoExplain() {
     } else resetView();
   }
 
-  function openHistoryRepository(url: string) {
-    if (activeRequest.current) {
-      return;
-    }
-
-    setRepositoryUrl(url);
-
-    void analyzeRepository(url);
-  }
-
   return (
     <>
       <Hero>
@@ -283,11 +317,6 @@ export function RepoExplain() {
           disabled={isAnalyzing}
         />
       </Hero>
-      <RepositoryHistory
-        refreshKey={historyRefreshKey}
-        disabled={isAnalyzing}
-        onSelect={openHistoryRepository}
-      />
       <section
         id="workspace"
         className="workspace page-width"

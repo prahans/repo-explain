@@ -40,6 +40,27 @@ export function replayCachedRepositoryAnalysis(
 ) {
   if (!onUpdate) return;
 
+  // IMPORTANT:
+  // RepoExplain.tsx creates its progressive report when it receives
+  // the repository event. Cached responses must replay this first.
+  onUpdate({
+    type: "repository",
+    data: {
+      name: cached.repository.name,
+      fullName: cached.repository.fullName,
+      description: cached.repository.description,
+      language: cached.repository.language,
+      defaultBranch: cached.repository.defaultBranch,
+      url: cached.repository.url,
+
+      ...(cached.repository.stars !== null
+        ? { stars: cached.repository.stars }
+        : {}),
+
+      license: cached.repository.license,
+    },
+  });
+
   const prepared = {
     tree: cached.analysis.structure.entries.map((entry) => ({
       path: entry.path,
