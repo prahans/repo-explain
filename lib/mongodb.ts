@@ -6,9 +6,11 @@ const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
   throw new Error(
-    "MONGODB_URI is not defined. Add it to your .env.local file.",
+    "MONGODB_URI is not defined. Add it to your environment variables.",
   );
 }
+
+const mongoUri: string = MONGODB_URI;
 
 type MongooseCache = {
   connection: typeof mongoose | null;
@@ -35,7 +37,7 @@ export async function connectToDatabase() {
   }
 
   if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGODB_URI, {
+    cached.promise = mongoose.connect(mongoUri, {
       bufferCommands: false,
     });
   }
