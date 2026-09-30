@@ -54,6 +54,9 @@ export function RepositoryHistory({
   const [isSignedIn, setIsSignedIn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -167,6 +170,60 @@ export function RepositoryHistory({
     }
   }
 
+  async function toggleFavorite(item: HistoryItem) {
+    if (favoriteUpdatingId) return;
+
+    setFavoriteUpdatingId(item.id);
+    setError(null);
+
+    const nextValue = !item.isFavorite;
+
+    try {
+      const response = await fetch(`/api/history/${item.id}`, {
+        method: "PATCH",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          isFavorite: nextValue,
+        }),
+      });
+
+      if (response.status === 401) {
+        setIsSignedIn(false);
+        setItems([]);
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+
+        throw new Error(data?.message ?? "Could not update favorite.");
+      }
+
+      setItems((current) =>
+        current.map((historyItem) =>
+          historyItem.id === item.id
+            ? {
+                ...historyItem,
+                isFavorite: nextValue,
+              }
+            : historyItem,
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to update favorite:", error);
+
+      setError(
+        error instanceof Error ? error.message : "Could not update favorite.",
+      );
+    } finally {
+      setFavoriteUpdatingId(null);
+    }
+  }
+
   return (
     <section
       className="page-width py-5"
@@ -207,9 +264,37 @@ export function RepositoryHistory({
                 </p>
               </button>
 
-              <span className="shrink-0 rounded-full border border-line px-2 py-1 text-[11px] text-muted">
-                {item.status === "completed" ? "Ready" : "Partial"}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  aria-pressed={item.isFavorite}
+                  aria-label={
+                    item.isFavorite
+                      ? `Remove ${item.repository.fullName} from favorites`
+                      : `Add ${item.repository.fullName} to favorites`
+                  }
+                  title={
+                    item.isFavorite
+                      ? "Remove from favorites"
+                      : "Add to favorites"
+                  }
+                  disabled={disabled || favoriteUpdatingId === item.id}
+                  onClick={() => {
+                    void toggleFavorite(item);
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-line text-base transition hover:bg-black/[0.03] disabled:opacity-50"
+                >
+                  {favoriteUpdatingId === item.id
+                    ? "…"
+                    : item.isFavorite
+                      ? "★"
+                      : "☆"}
+                </button>
+
+                <span className="rounded-full border border-line px-2 py-1 text-[11px] text-muted">
+                  {item.status === "completed" ? "Ready" : "Partial"}
+                </span>
+              </div>
             </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">

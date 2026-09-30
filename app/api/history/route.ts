@@ -25,6 +25,7 @@ export async function GET() {
       userId: session.user.id,
     })
       .sort({
+        isFavorite: -1,
         lastVisitedAt: -1,
       })
       .limit(20)
