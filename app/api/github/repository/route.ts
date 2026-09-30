@@ -9,9 +9,16 @@ import {
   generateOverview,
   type RepositoryOverview,
 } from "@/lib/generateOverview";
+import { normalizeRepositoryAnalysis } from "@/lib/normalizeRepositoryAnalysis";
 import { randomUUID } from "node:crypto";
 import { claimAnalysisRequest } from "@/lib/analysisRequestGuard";
-import { preparedSchema, repositorySchema, type AnalysisStreamEvent, type AnalysisUpdate, type PreparationStage } from "@/lib/analysisProtocol";
+import {
+  preparedSchema,
+  repositorySchema,
+  type AnalysisStreamEvent,
+  type AnalysisUpdate,
+  type PreparationStage,
+} from "@/lib/analysisProtocol";
 
 type GitHubContentItem = {
   name: string;
@@ -75,21 +82,46 @@ export async function POST(request: Request) {
 
   const username = body.username.trim();
   const repo = body.repo.trim();
-  if (!/^[a-zA-Z0-9-]+$/.test(username) || !/^[a-zA-Z0-9_.-]+$/.test(repo) || repo === "." || repo === "..") {
-    return Response.json({ message: "Invalid repository owner or name" }, { status: 400 });
+  if (
+    !/^[a-zA-Z0-9-]+$/.test(username) ||
+    !/^[a-zA-Z0-9_.-]+$/.test(repo) ||
+    repo === "." ||
+    repo === ".."
+  ) {
+    return Response.json(
+      { message: "Invalid repository owner or name" },
+      { status: 400 },
+    );
   }
-  const requestId = request.headers.get("X-Analysis-Request-ID") ?? randomUUID();
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestId)) {
-    return Response.json({ message: "Invalid analysis request ID" }, { status: 400 });
+  const requestId =
+    request.headers.get("X-Analysis-Request-ID") ?? randomUUID();
+  if (
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
+      requestId,
+    )
+  ) {
+    return Response.json(
+      { message: "Invalid analysis request ID" },
+      { status: 400 },
+    );
   }
   let finish: (() => void) | null;
   try {
     finish = claimAnalysisRequest(requestId);
   } catch {
-    return Response.json({ message: "The analysis queue is full. Please try again later." }, { status: 503 });
+    return Response.json(
+      { message: "The analysis queue is full. Please try again later." },
+      { status: 503 },
+    );
   }
   if (!finish) {
-    return Response.json({ message: "This analysis submission has already been received. Start a new analysis to try again." }, { status: 409 });
+    return Response.json(
+      {
+        message:
+          "This analysis submission has already been received. Start a new analysis to try again.",
+      },
+      { status: 409 },
+    );
   }
 
   if (request.headers.get("accept")?.includes("application/x-ndjson")) {
@@ -107,10 +139,7 @@ export async function POST(request: Request) {
 
     console.error("GitHub repository request failed:", error);
 
-    return Response.json(
-      { message: repositoryRequestError },
-      { status: 502 },
-    );
+    return Response.json({ message: repositoryRequestError }, { status: 502 });
   } finally {
     finish();
   }
@@ -208,7 +237,10 @@ async function getRepositoryResponse(
   repo: string,
   { signal, onUpdate }: RepositoryRequestOptions = {},
 ) {
-  const reportProgress = (stage: PreparationStage, counts: { filesScanned?: number; filesSelected?: number } = {}) => {
+  const reportProgress = (
+    stage: PreparationStage,
+    counts: { filesScanned?: number; filesSelected?: number } = {},
+  ) => {
     signal?.throwIfAborted();
     onUpdate?.({ type: "status", stage, ...counts });
   };
@@ -327,7 +359,10 @@ async function getRepositoryResponse(
   const importantPaths = new Set(getImportantFiles(tree));
 
   const importantFiles = tree.filter((item) => importantPaths.has(item.path));
-  reportProgress("preparing_context", { filesScanned, filesSelected: importantFiles.length });
+  reportProgress("preparing_context", {
+    filesScanned,
+    filesSelected: importantFiles.length,
+  });
 
   // --------------------------------
   // 5. README - OPTIONAL
@@ -387,10 +422,9 @@ async function getRepositoryResponse(
     const packageData: GitHubFileResponse = await packageResponse.json();
 
     if (packageData.content) {
-      packageContent = Buffer.from(
-        packageData.content,
-        "base64",
-      ).toString("utf-8");
+      packageContent = Buffer.from(packageData.content, "base64").toString(
+        "utf-8",
+      );
 
       const packageJson = JSON.parse(packageContent);
 
@@ -509,8 +543,19 @@ async function getRepositoryResponse(
   // 9. Generate the AI overview
   // --------------------------------
 
-  onUpdate?.({ type: "prepared", data: preparedSchema.parse({ tree, importantFiles, fileContents, technologies }) });
-  reportProgress("generating_analysis", { filesScanned, filesSelected: importantFiles.length });
+  onUpdate?.({
+    type: "prepared",
+    data: preparedSchema.parse({
+      tree,
+      importantFiles,
+      fileContents,
+      technologies,
+    }),
+  });
+  reportProgress("generating_analysis", {
+    filesScanned,
+    filesSelected: importantFiles.length,
+  });
 
   let overview: RepositoryOverview;
 
