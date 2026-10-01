@@ -11,18 +11,15 @@ export function Navbar({
 }) {
   return (
     <header className="site-nav">
-      <nav
-        className="page-width nav-content"
-        aria-label="Main navigation"
-      >
+      <nav className="page-width nav-content" aria-label="Main navigation">
         <Link href="/" className="brand" aria-label="RepoExplain home">
           <span className="brand-mark">
             <Icon name="code" size={22} />
           </span>
           RepoExplain
-          <span className="ml-1 hidden rounded border border-line px-1.5 py-0.5 font-mono text-xs font-normal tracking-normal text-muted sm:inline">
+          {/* <span className="ml-1 hidden rounded border border-line px-1.5 py-0.5 font-mono text-xs font-normal tracking-normal text-muted sm:inline">
             BETA
-          </span>
+          </span> */}
         </Link>
         <div className="nav-actions">
           {signedIn && (

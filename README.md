@@ -628,6 +628,4 @@ https://repo-explain-gamma.vercel.app/
 
 ## Status
 
-RepoExplain is currently in **beta** and is under active development.
-
 The analysis pipeline, caching behavior, supported repository patterns, and AI output format may continue to evolve.
